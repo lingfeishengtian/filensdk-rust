@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use url::Url;
 
+use crate::error::FilenSDKError;
+
 const BASE_GATEWAY_URL: &str = "https://gateway.filen.io";
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 pub struct FilenResponse<T> {
     pub status: bool,
     pub message: String,
@@ -26,19 +28,26 @@ pub enum RequestMethod {
 macro_rules! generate_request_methods {
     ($($method:ident; $req_method:ident),*) => {
         $(
-            pub fn $method<T>(
+            pub fn $method<T, U>(
                 url: FilenURL,
                 parameters: Option<HashMap<&str, &str>>,
                 api_key: Option<&str>,
-                body: Option<HashMap<&str, &str>>,
-            ) -> Result<FilenResponse<T>, reqwest::Error>
-            where
-                T: serde::de::DeserializeOwned,
+                body: Option<U>,
+            ) -> Result<T, FilenSDKError> where
+            T: serde::de::DeserializeOwned + std::fmt::Debug,
+            U: serde::Serialize,
             {
                 make_request(url, parameters, api_key, body, RequestMethod::$req_method)
             }
         )*
     };
+}
+
+#[derive(serde::Serialize)]
+pub struct HttpClientNone { }
+
+pub fn http_none() -> Option<HttpClientNone> {
+    None
 }
 
 generate_request_methods!(
@@ -48,15 +57,15 @@ generate_request_methods!(
     make_delete_request; DELETE
 );
 
-pub fn make_request<T>(
+pub fn make_request<T, U>(
     url: FilenURL,
     parameters: Option<HashMap<&str, &str>>,
     api_key: Option<&str>,
-    body: Option<HashMap<&str, &str>>,
+    body: Option<U>,
     method: RequestMethod,
-) -> Result<FilenResponse<T>, reqwest::Error>
-where
-    T: serde::de::DeserializeOwned,
+) -> Result<T, FilenSDKError> where
+    T: serde::de::DeserializeOwned + std::fmt::Debug,
+    U: serde::Serialize,
 {
     let client = reqwest::Client::new();
     let mut request = match method {
@@ -72,22 +81,36 @@ where
 
     if let Some(api_key) = api_key
     {
-        request = request.header("Authorization", "Bearer ".to_owned() + api_key);
+        request = request.bearer_auth(api_key);
     }
 
     if let Some(body) = body {
-        request = request.form(&body);
+        request = request.json(&body);
     }
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     let response = rt.block_on(request.send());
-    let response_text = rt.block_on(response?.text());
+    let response_text = match response {
+        Ok(response) => response.text(),
+        Err(e) => return Err(FilenSDKError::ReqwestError { err_str: e.to_string() }),
+    };
+
+    let response_text = rt.block_on(response_text);
 
     if let Ok(response_text) = response_text {
-        let response_json: FilenResponse<T> = serde_json::from_str(&response_text).unwrap();
-        return Ok(response_json);
+        let response_json = serde_json::from_str(&response_text);
+        if response_json.is_err() {
+            return Err(FilenSDKError::SerdeJsonError { err_str: response_text, err_msg: response_json.unwrap_err().to_string() });
+        }
+
+        let response_json: FilenResponse<T> = response_json.unwrap();
+        if response_json.status && response_json.data.is_some() {
+            return Ok(response_json.data.unwrap());
+        } else {
+            return Err(FilenSDKError::APIError { message: response_json.message, code: response_json.code });
+        }
     } else {
-        return Err(response_text.unwrap_err());
+        return Err(FilenSDKError::ReqwestError { err_str: response_text.unwrap_err().to_string() });
     }
 }
 

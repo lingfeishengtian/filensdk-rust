@@ -5,6 +5,9 @@
 out/
 swiftuniffi/
 
+# Test data
+.env
+
 # Framework Generation Output
 *.xcframework
 

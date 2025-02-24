@@ -5,8 +5,8 @@ LIB_NAME="filensdk"
 
 # Compile mac, ios and ios-sim
 cargo build --release
-# cargo build --release --target aarch64-apple-ios
-# cargo build --release --target aarch64-apple-ios-sim
+cargo build --release --target aarch64-apple-ios
+cargo build --release --target aarch64-apple-ios-sim
 
 # Generate bindings for swift
 cargo run --bin uniffi-bindgen generate --library target/release/lib${LIB_NAME}.dylib --language swift --out-dir swiftuniffi
