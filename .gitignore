@@ -1,0 +1,12 @@
+# Rust output
+/target
+
+# Uniffi Bindgen output 
+out/
+swiftuniffi/
+
+# Framework Generation Output
+*.xcframework
+
+# Mac OS X Finder metadata
+.DS_Store
