@@ -15,6 +15,7 @@ pub struct FilenResponse<T> {
     pub data: Option<T>,
 }
 
+#[derive()]
 pub enum FilenURL {
     baseUrl(String),
     // /\(region)/\(bucket)/\(uuid)/\(index)
@@ -162,7 +163,7 @@ const EGEST_URLS: [&str; 8] = [
     "https://egest.filen-6.net",
 ];
 
-fn string_url(url: FilenURL) -> Url {
+pub fn string_url(url: FilenURL) -> Url {
     match url {
         FilenURL::baseUrl(endpoint) => Url::parse(&format!("{}/{}", BASE_GATEWAY_URL, endpoint.trim_start_matches("/"))).unwrap(),
         FilenURL::egest(region, bucket, uuid, index) => {
