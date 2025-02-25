@@ -2,11 +2,11 @@
 /target
 
 # Uniffi Bindgen output 
-out/
 swiftuniffi/
 
 # Test data
 .env
+tests/out/
 
 # Framework Generation Output
 *.xcframework

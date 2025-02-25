@@ -15,6 +15,8 @@ pub struct FilenResponse<T> {
 
 pub enum FilenURL {
     baseUrl(String),
+    // /\(region)/\(bucket)/\(uuid)/\(index)
+    egest(String, String, String, u64)
     // TODO: Ingest and Egest
 }
 
@@ -56,6 +58,22 @@ generate_request_methods!(
     make_put_request; PUT, 
     make_delete_request; DELETE
 );
+
+/*
+This function assumes that a tokio runtime is already running.
+*/
+pub async fn download_into_memory(url: FilenURL, client: &reqwest::Client) -> Result<Vec<u8>, FilenSDKError> {
+    let request = client.get(string_url(url));
+
+    let response = request.send().await;
+    let response_text = match response {
+        Ok(response) => response.bytes().await,
+        Err(e) => return Err(FilenSDKError::ReqwestError { err_str: e.to_string() }),
+    };
+    
+    let response_text = response_text.unwrap();
+    Ok(response_text.to_vec())
+}
 
 pub fn make_request<T, U>(
     url: FilenURL,
@@ -114,8 +132,23 @@ pub fn make_request<T, U>(
     }
 }
 
+const EGEST_URLS: [&str; 8] = [
+    "https://egest.filen.io",
+    "https://egest.filen.net",
+    "https://egest.filen-1.net",
+    "https://egest.filen-2.net",
+    "https://egest.filen-3.net",
+    "https://egest.filen-4.net",
+    "https://egest.filen-5.net",
+    "https://egest.filen-6.net",
+];
+
 fn string_url(url: FilenURL) -> Url {
     match url {
         FilenURL::baseUrl(endpoint) => Url::parse(&format!("{}/{}", BASE_GATEWAY_URL, endpoint.trim_start_matches("/"))).unwrap(),
+        FilenURL::egest(region, bucket, uuid, index) => {
+            let egest_url = EGEST_URLS[index as usize % EGEST_URLS.len()];
+            Url::parse(&format!("{}/{}/{}/{}/{}", egest_url, region, bucket, uuid, index)).unwrap()
+        }
     }
 }

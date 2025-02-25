@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use tokio::sync::Semaphore;
+
 use crate::{
     credentials::SDKCreds,
     error::FilenSDKError,
@@ -10,14 +12,31 @@ use crate::{
 
 #[derive(uniffi::Object)]
 pub struct FilenSDK {
-    credentials: Arc<Mutex<Option<SDKCreds>>>
+    credentials: Arc<Mutex<Option<SDKCreds>>>,
+    /*
+    Temporarily keep the decrypt semaphore here although it most likely will not be needed
+    since the crypto module uses ring, being so fast that scheduling tasks actually slows
+    the process down. For example, in decryption, in-memory decryption removes the need to
+    read from a file after decrypting, saving memory and speed. 
+     */ 
+    pub decrypt_semaphore: Arc<Semaphore>,
+    pub download_semaphore: Arc<Semaphore>,
+    pub client: Arc<reqwest::Client>
 }
+
+pub const MAX_DECRYPT_THREADS: usize = 10;
+pub const MAX_DOWNLOAD_THREADS: usize = 50;
 
 #[uniffi::export]
 impl FilenSDK {
     #[uniffi::constructor]
     pub fn new() -> Self {
-        Self { credentials: Arc::new(Mutex::new(None)) }
+        Self { 
+            credentials: Arc::new(Mutex::new(None)),
+            decrypt_semaphore: Arc::new(Semaphore::new(MAX_DECRYPT_THREADS)),
+            download_semaphore: Arc::new(Semaphore::new(MAX_DOWNLOAD_THREADS)),
+            client: Arc::new(reqwest::Client::new())
+        }
     }
 
     // Utilize serde to convert the input to JSON String that can be stored locally
