@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use bytes::Bytes;
+use tokio::io::AsyncWriteExt;
 use url::Url;
 
 use crate::error::FilenSDKError;
@@ -62,7 +64,7 @@ generate_request_methods!(
 /*
 This function assumes that a tokio runtime is already running.
 */
-pub async fn download_into_memory(url: FilenURL, client: &reqwest::Client) -> Result<Vec<u8>, FilenSDKError> {
+pub async fn download_into_memory(url: FilenURL, client: &reqwest::Client) -> Result<Bytes, FilenSDKError> {
     let request = client.get(string_url(url));
 
     let response = request.send().await;
@@ -72,7 +74,24 @@ pub async fn download_into_memory(url: FilenURL, client: &reqwest::Client) -> Re
     };
     
     let response_text = response_text.unwrap();
-    Ok(response_text.to_vec())
+    Ok(response_text)
+}
+
+pub async fn download_to_file_streamed(url: FilenURL, client: &reqwest::Client, file_path: &str) -> Result<String, FilenSDKError> {
+    let request = client.get(string_url(url));
+
+    let response = request.send().await;
+    let mut response = match response {
+        Ok(response) => response,
+        Err(e) => return Err(FilenSDKError::ReqwestError { err_str: e.to_string() }),
+    };
+
+    let mut file = tokio::fs::File::create(file_path).await.unwrap();
+    while let Some(chunk) = response.chunk().await.unwrap() {
+        file.write_all(&chunk).await.unwrap();
+    }
+
+    Ok(file_path.to_string())
 }
 
 pub fn make_request<T, U>(
@@ -85,7 +104,7 @@ pub fn make_request<T, U>(
     T: serde::de::DeserializeOwned + std::fmt::Debug,
     U: serde::Serialize,
 {
-    let client = reqwest::Client::new();
+    let client: reqwest::Client = reqwest::Client::new();
     let mut request = match method {
         RequestMethod::GET => client.get(string_url(url)),
         RequestMethod::POST => client.post(string_url(url)),

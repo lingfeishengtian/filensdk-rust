@@ -31,6 +31,7 @@ pub const MAX_DOWNLOAD_THREADS: usize = 50;
 impl FilenSDK {
     #[uniffi::constructor]
     pub fn new() -> Self {
+
         Self { 
             credentials: Arc::new(Mutex::new(None)),
             decrypt_semaphore: Arc::new(Semaphore::new(MAX_DECRYPT_THREADS)),
