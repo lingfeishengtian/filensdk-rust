@@ -7,6 +7,7 @@ swiftuniffi/
 # Test data
 .env
 tests/out/
+tests/tmp/
 
 # Framework Generation Output
 *.xcframework

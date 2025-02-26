@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
 
-use crate::{crypto::file_decrypt::write_output, error::FilenSDKError, filensdk::MAX_DOWNLOAD_THREADS, httpclient::{download_into_memory, FilenURL}, FilenSDK};
+use crate::{crypto::file_decrypt::write_output, error::FilenSDKError, filensdk::MAX_DOWNLOAD_THREADS, httpclient::{download_into_memory, download_to_file_streamed, FilenURL}, FilenSDK};
 
 
 async fn download_file<T, G, B>(
@@ -15,7 +15,7 @@ async fn download_file<T, G, B>(
     file_name: String,
     file_size: u64,
     // http_retrieve_data: F,
-    http_retrieve_data: impl Fn(FilenURL) -> B + Send + Clone + 'static,
+    http_retrieve_data: impl Fn(FilenURL, u64) -> B + Send + Sync + Clone + 'static,
     decrypt_retrieve_data: G,
 ) where T: Send + 'static,
     B: std::future::Future<Output = Result<T, FilenSDKError>> + Send + 'static,
@@ -46,13 +46,12 @@ async fn download_file<T, G, B>(
     let handler = tokio::task::spawn_blocking(move || {
         while let Some((i, data)) = rx_decrypt.blocking_recv() {
             if data.is_none() {
-                println!("Error downloading chunk {}, empty message", i);
+                eprintln!("Error downloading chunk {}, empty message", i);
             }
             
             let data = decrypt_retrieve_data(data.unwrap());
 
             if data.len() > 0 {
-                println!("Decrypting chunk {} to {}", i, file_path_clone);
                 let mut data = data.try_into_mut().unwrap();
                 let decrypt_in_memory = crate::crypto::file_decrypt::decrypt_v2_in_memory(&mut data, key.as_bytes()).unwrap();
                 let out_path = std::path::Path::new(&file_path_clone).to_path_buf();
@@ -76,9 +75,6 @@ async fn download_file<T, G, B>(
         
         // Copy link enum
         let link = crate::httpclient::FilenURL::egest(region.to_string(), bucket.to_string(), uuid.to_string(), i);
-        // let key = key.to_string();
-
-        println!("settup for chunk {}", i);
         let http_retrieve_data = http_retrieve_data.clone();
 
         // Start download thread
@@ -88,11 +84,9 @@ async fn download_file<T, G, B>(
 
             let cur_time = std::time::SystemTime::now();
             // let result = crate::httpclient::download_into_memory(link, &client).await;
-            let result: Result<T, FilenSDKError> = http_retrieve_data(link).await;
+            let result: Result<T, FilenSDKError> = http_retrieve_data(link, i).await;
             match result {
                 Ok(data) => {
-                    println!("Downloaded chunk {} in {} ms", i, cur_time.elapsed().unwrap().as_millis());
-                    
                     tx_decrypt.send((i, Some(data))).await.unwrap();
                     drop(tx_decrypt);
                     tx.send(i).await.unwrap();
@@ -126,89 +120,24 @@ impl FilenSDK {
         file_name: String,
         file_size: u64,
     ) {
-        // Calculate chunks round up
-        let chunks = (file_size as f64 / crate::crypto::CHUNK_SIZE as f64).ceil() as u64;
-
-        // Does output directory exist?
-        if !std::path::Path::new(&output_dir).exists() {
-            std::fs::create_dir(&output_dir).unwrap();
-        }
-
-        let file_path = format!("{}/{}", output_dir, file_name);
-
-        // Create tokio runtime using builder to configure multi-threaded runtime
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let _guard = rt.enter();
-
-        // Start channel for finished tasks to notify completion
-        let (tx, mut rx) = tokio::sync::mpsc::channel(MAX_DOWNLOAD_THREADS);
-        let (tx_decrypt, mut rx_decrypt) = tokio::sync::mpsc::channel::<(u64, bytes::Bytes)>(32);
-
-        let file_path_clone = file_path.clone();
-        let handler = tokio::task::spawn_blocking(move || {
-            while let Some((i, data)) = rx_decrypt.blocking_recv() {
-                if data.len() > 0 {
-                    println!("Decrypting chunk {} to {}", i, file_path_clone);
-                    let mut data = data.try_into_mut().unwrap();
-                    let decrypt_in_memory = crate::crypto::file_decrypt::decrypt_v2_in_memory(&mut data, key.as_bytes()).unwrap();
-                    let out_path = std::path::Path::new(&file_path_clone).to_path_buf();
-                    write_output(&out_path.as_path(), decrypt_in_memory, Some(i as usize));
+        let client = self.client.clone();
+        download_file(
+            self.download_semaphore.clone(),
+            uuid,
+            region,
+            bucket,
+            key,
+            output_dir,
+            file_name,
+            file_size,
+            move |url: FilenURL, _index: u64| {
+                let client = client.clone();
+                async move {
+                    download_into_memory(url, &client).await
                 }
-            }
-        });
-
-        // Start download threads
-        for i in 0..chunks {
-            // Block to conserve stack
-            if i > MAX_DOWNLOAD_THREADS as u64 {
-                rx.blocking_recv().unwrap();
-            }
-
-            // // Semaphore to limit number of concurrent downloads
-            let semaphore = self.download_semaphore.clone();
-
-            let tx = tx.clone();
-            let tx_decrypt = tx_decrypt.clone();
-            
-            // Copy link enum
-            let link = crate::httpclient::FilenURL::egest(region.to_string(), bucket.to_string(), uuid.to_string(), i);
-            // let key = key.to_string();
-            let client = self.client.clone();
-
-            println!("settup for chunk {}", i);
-            // Start download thread
-            tokio::spawn(async move {
-                // Copy permit into thread
-                let _permit: Result<tokio::sync::SemaphorePermit<'_>, tokio::sync::AcquireError> = semaphore.acquire().await;
-
-                let cur_time = std::time::SystemTime::now();
-                let result = crate::httpclient::download_into_memory(link, &client).await;
-                match result {
-                    Ok(data) => {
-                        println!("Downloaded chunk {} in {} ms", i, cur_time.elapsed().unwrap().as_millis());
-                        
-                        tx_decrypt.send((i, data)).await.unwrap();
-                        drop(tx_decrypt);
-                        tx.send(i).await.unwrap();
-                    }
-                    Err(e) => {
-                        // TODO: Retry logic
-                        eprintln!("Error downloading chunk {}: {}", i, e);
-                        tx_decrypt.send((i, vec![].into())).await.unwrap();
-                        drop(tx_decrypt);
-                        tx.send(i).await.unwrap();
-                    }
-                }
-            });
-        }
-
-        drop(tx);
-        drop(tx_decrypt);
-
-        let _ = rt.block_on(handler);
+            },
+            |data: Bytes| -> Bytes { data }
+        ).await;
     }
 
     /*
@@ -226,109 +155,37 @@ impl FilenSDK {
         file_name: String,
         file_size: u64,
     ) {
-        
-        // Calculate chunks round up
-        let chunks = (file_size as f64 / crate::crypto::CHUNK_SIZE as f64).ceil() as u64;
+        let client = self.client.clone();
 
-        // Does output directory exist?
-        if !std::path::Path::new(&output_dir).exists() {
-            std::fs::create_dir(&output_dir).unwrap();
-        }
-
+        // Create tmp directory if it doesn't exist
         if !std::path::Path::new(&tmp_dir).exists() {
             std::fs::create_dir(&tmp_dir).unwrap();
         }
 
-        let out_path = format!("{}/{}", output_dir, file_name);
-
-        // Create tokio runtime using builder to configure multi-threaded runtime
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let _guard = rt.enter();
-
-        // Start channel for finished tasks to notify completion
-        let (tx, mut rx) = tokio::sync::mpsc::channel(MAX_DOWNLOAD_THREADS);
-        let (tx_decrypt, mut rx_decrypt) = tokio::sync::mpsc::channel(32);
-
-        let handler = tokio::task::spawn_blocking(move || {
-            while let Some((i, file_path)) = rx_decrypt.blocking_recv() {
-                if file_path != "" {
-                    println!("Decrypting chunk {} to {}", i, file_path);
-                    let file_path = std::path::Path::new(&file_path).to_path_buf();
-                    let key = key.clone();
-                    let mut data = std::fs::read(&file_path).unwrap();
-                    let decrypt_in_memory = crate::crypto::file_decrypt::decrypt_v2_in_memory(data.as_mut_slice(), key.as_bytes()).unwrap();
-                    
-                    let out_path = std::path::Path::new(&out_path).to_path_buf();
-                    write_output(&out_path.as_path(), decrypt_in_memory, Some(i as usize));
-
-                    // Delete tmp file
-                    std::fs::remove_file(file_path).unwrap();
+        download_file(
+            self.download_semaphore.clone(),
+            uuid,
+            region,
+            bucket,
+            key,
+            output_dir,
+            file_name,
+            file_size,
+            move |url: FilenURL, index: u64| {
+                let client = client.clone();
+                let tmp_dir = tmp_dir.clone() + "/" + &index.to_string();
+                async move {
+                    download_to_file_streamed(url, &client, &tmp_dir).await
                 }
-            }
-        });
-
-        // Start download threads
-        for i in 0..chunks {
-            // Block to conserve stack
-            if i > MAX_DOWNLOAD_THREADS as u64 {
-                rt.block_on(rx.recv()).unwrap();
-            }
-
-            // // Semaphore to limit number of concurrent downloads
-            let semaphore = self.download_semaphore.clone();
-
-            let tx = tx.clone();
-            let tx_decrypt = tx_decrypt.clone();
-            
-            // Copy link enum
-            let link = crate::httpclient::FilenURL::egest(region.to_string(), bucket.to_string(), uuid.to_string(), i);
-            let file_path = tmp_dir.clone() + &format!("/chunk_{}", i);
-            let client = self.client.clone();
-
-            // Start download thread
-            tokio::spawn(async move {
-                // Copy permit into thread
-                let _permit: Result<tokio::sync::SemaphorePermit<'_>, tokio::sync::AcquireError> = semaphore.acquire().await;
-
-                let result = crate::httpclient::download_to_file_streamed(link, &client, &file_path).await;
-                match result {
-                    Ok(data) => {
-                        tx.send(i).await.unwrap();
-                        tx_decrypt.send((i, file_path)).await.unwrap();
-                        drop(tx_decrypt);
-                    }
-                    Err(e) => {
-                        // TODO: Retry logic
-                        eprintln!("Error downloading chunk {}: {}", i, e);
-                        tx.send(i).await.unwrap();
-                        tx_decrypt.send((i, "".to_string())).await.unwrap();
-                        drop(tx_decrypt);
-                    }
-                }
-            });
-        }
-
-        drop(tx);
-        drop(tx_decrypt);
-
-       let _ = rt.block_on(handler);
-
-        // Clear tmp dir
-        std::fs::remove_dir_all(tmp_dir).unwrap();
-
-        // Wait for all downloads to finish
-        // let chunks_to_wait = if chunks > MAX_DOWNLOAD_THREADS as u64 {
-        //     MAX_DOWNLOAD_THREADS as u64
-        // } else {
-        //     chunks
-        // };
-        // for _ in 0..chunks_to_wait {
-        //     rt.block_on(rx.recv()).unwrap();
-        // }
-        // rt.block_on(rx.recv()).unwrap();
+            },
+            |data: String| -> Bytes { 
+                let file = std::fs::File::open(data).unwrap();
+                let mut reader = std::io::BufReader::new(file);
+                let mut buffer = Vec::new();
+                std::io::Read::read_to_end(&mut reader, &mut buffer).unwrap();
+                Bytes::from(buffer)
+             }
+        ).await;
     }
 }
 
@@ -358,8 +215,8 @@ mod tests {
 
 
         let current_time = std::time::SystemTime::now();
-        sdk.download_file_low_disk(uuid, region, bucket, key, output_dir.clone(), file_name.clone(), file_size).await;
-        // sdk.download_file_low_memory(uuid, region, bucket, key, output_dir.clone(), "tests/tmp".to_string(), file_name.clone(), file_size).await;
+        // sdk.download_file_low_disk(uuid, region, bucket, key, output_dir.clone(), file_name.clone(), file_size).await;
+        sdk.download_file_low_memory(uuid, region, bucket, key, output_dir.clone(), "tests/tmp".to_string(), file_name.clone(), file_size).await;
         let elapsed = current_time.elapsed().unwrap();
         println!("Download speed: {} MB/s", file_size as f64 / elapsed.as_secs_f64() / 1024.0 / 1024.0);
 

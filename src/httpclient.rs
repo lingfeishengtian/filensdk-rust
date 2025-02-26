@@ -163,7 +163,7 @@ const EGEST_URLS: [&str; 8] = [
     "https://egest.filen-6.net",
 ];
 
-pub fn string_url(url: FilenURL) -> Url {
+fn string_url(url: FilenURL) -> Url {
     match url {
         FilenURL::baseUrl(endpoint) => Url::parse(&format!("{}/{}", BASE_GATEWAY_URL, endpoint.trim_start_matches("/"))).unwrap(),
         FilenURL::egest(region, bucket, uuid, index) => {
