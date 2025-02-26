@@ -5,10 +5,13 @@ pub mod filensdk;
 pub mod auth;
 pub mod responses;
 pub mod error;
-pub mod fs_download;
+
+pub mod download;
+// pub mod upload;
 
 mod httpclient;
 mod crypto;
 mod requests;
+mod mod_private;
 
 pub use filensdk::FilenSDK;

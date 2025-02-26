@@ -1,38 +1,8 @@
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::ops::RangeFrom;
 use std::path::Path;
-// use base64::engine::general_purpose;
-// use base64::Engine as _;
-// use md5;
-// use aes::Aes256;
-// use block_modes::block_padding::Pkcs7;
-// use block_modes::{BlockMode, Cbc};
 use ring::aead::{self};
-use tokio::io::AsyncSeekExt;
-// use tempfile::tempdir;
-
-// type Aes256Cbc = Cbc<Aes256, Pkcs7>;
-
-// #[uniffi::export]
-// pub fn decrypt_file(
-//     input: String,
-//     output: String,
-//     key: String,
-//     version: i32,
-//     index: Option<u64>,
-//     should_clear: bool,
-// ) {
-//     let input = Path::new(&input);
-//     let output = Path::new(&output);
-//     let key = key.as_str();
-
-//     match stream_decrypt_data(input, output, key, version, index.map(|i| i as usize), should_clear) {
-//         Ok(_) => (),
-//         Err(e) => eprintln!("Error: {}", e),
-//     }
-// }
 
 pub fn stream_decrypt_data(
     input: &Path,
@@ -150,7 +120,7 @@ mod tests{
     #[test]
     fn test_stream_decrypt_data() {
         let input = Path::new("tests/out/test.enc");
-        let output = Path::new("tests/out/test.txt");
+        let output = Path::new("tests/out/test.dec.txt");
         let key = "abcd".repeat(8);
         let version = 2;
         let index = None;
@@ -166,7 +136,5 @@ mod tests{
         output_file.read_exact( &mut output_data).unwrap();
 
         assert_eq!(output_data, vec![0x41; 1024 * 1024]);
-
-        remove_file(output).unwrap();
     }
 }

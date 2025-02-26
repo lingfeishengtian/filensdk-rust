@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use bytes::Bytes;
+use reqwest::Client;
 use tokio::io::AsyncWriteExt;
 use url::Url;
 
 use crate::error::FilenSDKError;
 
-const BASE_GATEWAY_URL: &str = "https://gateway.filen.io";
+use super::{endpoints::{string_url, Endpoints}, FsURL};
+
 
 #[derive(serde::Deserialize, Debug)]
 pub struct FilenResponse<T> {
@@ -15,37 +17,11 @@ pub struct FilenResponse<T> {
     pub data: Option<T>,
 }
 
-#[derive()]
-pub enum FilenURL {
-    baseUrl(String),
-    // /\(region)/\(bucket)/\(uuid)/\(index)
-    egest(String, String, String, u64)
-    // TODO: Ingest and Egest
-}
-
 pub enum RequestMethod {
     GET,
     POST,
     PUT,
     DELETE,
-}
-
-macro_rules! generate_request_methods {
-    ($($method:ident; $req_method:ident),*) => {
-        $(
-            pub fn $method<T, U>(
-                url: FilenURL,
-                parameters: Option<HashMap<&str, &str>>,
-                api_key: Option<&str>,
-                body: Option<U>,
-            ) -> Result<T, FilenSDKError> where
-            T: serde::de::DeserializeOwned + std::fmt::Debug,
-            U: serde::Serialize,
-            {
-                make_request(url, parameters, api_key, body, RequestMethod::$req_method)
-            }
-        )*
-    };
 }
 
 #[derive(serde::Serialize)]
@@ -55,18 +31,11 @@ pub fn http_none() -> Option<HttpClientNone> {
     None
 }
 
-generate_request_methods!(
-    make_get_request; GET, 
-    make_post_request; POST, 
-    make_put_request; PUT, 
-    make_delete_request; DELETE
-);
-
 /*
 This function assumes that a tokio runtime is already running.
 */
-pub async fn download_into_memory(url: FilenURL, client: &reqwest::Client) -> Result<Bytes, FilenSDKError> {
-    let request = client.get(string_url(url));
+pub async fn download_into_memory(url: FsURL, client: &reqwest::Client) -> Result<Bytes, FilenSDKError> {
+    let request = client.get(string_url(&url));
 
     let response = request.send().await;
     let response_text = match response {
@@ -78,8 +47,8 @@ pub async fn download_into_memory(url: FilenURL, client: &reqwest::Client) -> Re
     Ok(response_text)
 }
 
-pub async fn download_to_file_streamed(url: FilenURL, client: &reqwest::Client, file_path: &str) -> Result<String, FilenSDKError> {
-    let request = client.get(string_url(url));
+pub async fn download_to_file_streamed(url: FsURL, client: &reqwest::Client, file_path: &str) -> Result<String, FilenSDKError> {
+    let request = client.get(string_url(&url));
 
     let response = request.send().await;
     let mut response = match response {
@@ -96,21 +65,28 @@ pub async fn download_to_file_streamed(url: FilenURL, client: &reqwest::Client, 
 }
 
 pub fn make_request<T, U>(
-    url: FilenURL,
+    url: Endpoints,
+    client: Option<&reqwest::Client>,
     parameters: Option<HashMap<&str, &str>>,
     api_key: Option<&str>,
     body: Option<U>,
-    method: RequestMethod,
 ) -> Result<T, FilenSDKError> where
     T: serde::de::DeserializeOwned + std::fmt::Debug,
     U: serde::Serialize,
 {
-    let client: reqwest::Client = reqwest::Client::new();
-    let mut request = match method {
-        RequestMethod::GET => client.get(string_url(url)),
-        RequestMethod::POST => client.post(string_url(url)),
-        RequestMethod::PUT => client.put(string_url(url)),
-        RequestMethod::DELETE => client.delete(string_url(url)),
+    let client: &reqwest::Client = match client {
+        Some(client) => client,
+        None => &Client::new(),
+    };
+
+    let endpoint = url.get_endpoint();
+    let url = endpoint.convert_full_url();
+
+    let mut request = match endpoint.method {
+        RequestMethod::GET => client.get(url),
+        RequestMethod::POST => client.post(url),
+        RequestMethod::PUT => client.put(url),
+        RequestMethod::DELETE => client.delete(url),
     };
 
     if let Some(parameters) = parameters {
@@ -149,26 +125,5 @@ pub fn make_request<T, U>(
         }
     } else {
         return Err(FilenSDKError::ReqwestError { err_str: response_text.unwrap_err().to_string() });
-    }
-}
-
-const EGEST_URLS: [&str; 8] = [
-    "https://egest.filen.io",
-    "https://egest.filen.net",
-    "https://egest.filen-1.net",
-    "https://egest.filen-2.net",
-    "https://egest.filen-3.net",
-    "https://egest.filen-4.net",
-    "https://egest.filen-5.net",
-    "https://egest.filen-6.net",
-];
-
-fn string_url(url: FilenURL) -> Url {
-    match url {
-        FilenURL::baseUrl(endpoint) => Url::parse(&format!("{}/{}", BASE_GATEWAY_URL, endpoint.trim_start_matches("/"))).unwrap(),
-        FilenURL::egest(region, bucket, uuid, index) => {
-            let egest_url = EGEST_URLS[index as usize % EGEST_URLS.len()];
-            Url::parse(&format!("{}/{}/{}/{}/{}", egest_url, region, bucket, uuid, index)).unwrap()
-        }
     }
 }

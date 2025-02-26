@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod fs;
 
 #[macro_export]
 macro_rules! request_struct {

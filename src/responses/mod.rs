@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod fs;
 
 use serde::Deserialize;
 

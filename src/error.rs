@@ -18,6 +18,9 @@ pub enum FilenSDKError {
         code: Option<String>,
     },
 
+    #[error("Not logged in")]
+    NoCredentials,
+
     #[error("Unknown Error: {err_str}")]
     UnknownError { err_str: String },
 }

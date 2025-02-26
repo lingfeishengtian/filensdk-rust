@@ -7,6 +7,10 @@ mod tests {
         let sdk = FilenSDK::new();
         dotenv::dotenv().ok();
         let email = std::env::var("TEST_EMAIL").expect("TEST_EMAIL must be set");
+
+        let status = sdk.retrieve_auth_info(&email).await;
+        assert_eq!(status.is_ok(), true);
+        assert_eq!(status.unwrap().email, email);
     }
 
     #[async_std::test]

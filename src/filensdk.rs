@@ -5,7 +5,7 @@ use tokio::sync::Semaphore;
 use crate::{
     credentials::SDKCreds,
     error::FilenSDKError,
-    httpclient::{http_none, make_get_request, make_post_request, FilenURL},
+    httpclient::{http_none, make_request, Endpoints},
     requests::auth::LoginRequest,
     responses::auth::{AuthVersion, LoginResponse, UserInfoResponse}
 };
@@ -31,7 +31,6 @@ pub const MAX_DOWNLOAD_THREADS: usize = 50;
 impl FilenSDK {
     #[uniffi::constructor]
     pub fn new() -> Self {
-
         Self { 
             credentials: Arc::new(Mutex::new(None)),
             decrypt_semaphore: Arc::new(Semaphore::new(MAX_DECRYPT_THREADS)),
@@ -65,8 +64,9 @@ impl FilenSDK {
         }
 
         let derived_creds = crate::crypto::password::derive_credentials_from_password(auth_info.auth_version, password, Some(&auth_info.salt));
-        let login_response: LoginResponse = make_post_request(
-            FilenURL::baseUrl("/v3/login".to_string()), 
+        let login_response: LoginResponse = make_request(
+            Endpoints::Login,
+            Some(&self.client.clone()),
             None,
             None, 
             Some(LoginRequest {
@@ -100,13 +100,22 @@ impl FilenSDK {
             None => String::new()
         }
     }
+
+    pub fn api_key(&self) -> Result<String, FilenSDKError> {
+        let creds = self.credentials.lock().unwrap();
+        match &*creds {
+            Some(creds) => Ok(creds.api_key.clone()),
+            None => Err(FilenSDKError::NoCredentials)
+        }
+    }
 }
 
 fn user_info_request(api_key: &str) -> Result<UserInfoResponse, FilenSDKError> {
-    make_get_request(
-        FilenURL::baseUrl("/v3/user/info".to_string()), 
-        None, 
-        Some(api_key), 
+    make_request(
+        Endpoints::UserInfo,
+        None,
+        None,
+        Some(api_key),
         http_none()
     )
 }
