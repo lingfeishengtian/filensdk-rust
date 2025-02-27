@@ -15,6 +15,17 @@ const EGEST_URLS: [&str; 8] = [
     "https://egest.filen-6.net",
 ];
 
+const INGEST_URLS: [&str; 8] = [
+    "https://ingest.filen.io",
+    "https://ingest.filen.net",
+    "https://ingest.filen-1.net",
+    "https://ingest.filen-2.net",
+    "https://ingest.filen-3.net",
+    "https://ingest.filen-4.net",
+    "https://ingest.filen-5.net",
+    "https://ingest.filen-6.net",
+];
+
 pub struct FilenEndpoint {
     pub endpoint: &'static str,
     pub method: RequestMethod,
@@ -64,11 +75,14 @@ define_endpoints![
     
     // Files
     UploadDone => ("/v3/upload/done", POST),
+    // File
+    FileInfo => ("/v3/file", POST),
 ];
 
 #[derive(Debug)]
 pub enum FsURL {
-    Egest(String, String, String, u64), // TODO: Ingest and Egest
+    Egest(String, String, String, u64),
+    Igest(String, String, u64, String, String), 
 }
 
 pub fn string_url(url: &FsURL) -> Url {
@@ -78,6 +92,14 @@ pub fn string_url(url: &FsURL) -> Url {
             Url::parse(&format!(
                 "{}/{}/{}/{}/{}",
                 egest_url, region, bucket, uuid, index
+            ))
+            .unwrap()
+        },
+        FsURL::Igest(uuid, upload_key, index, parent, hash) => {
+            let ingest_url = INGEST_URLS[*index as usize % INGEST_URLS.len()];
+            Url::parse(&format!(
+                "{}/v3/upload?uuid={}&index={}&uploadKey={}&parent={}&hash={}",
+                ingest_url, uuid.to_lowercase(), index, upload_key, parent.to_lowercase(), hash
             ))
             .unwrap()
         }

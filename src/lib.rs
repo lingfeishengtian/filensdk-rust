@@ -7,6 +7,7 @@ pub mod responses;
 pub mod error;
 
 pub mod download;
+pub mod file;
 // pub mod upload;
 
 mod httpclient;

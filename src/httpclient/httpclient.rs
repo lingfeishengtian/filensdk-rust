@@ -1,13 +1,15 @@
-use std::collections::HashMap;
 use bytes::Bytes;
 use reqwest::Client;
+use std::collections::HashMap;
 use tokio::io::AsyncWriteExt;
 use url::Url;
 
-use crate::error::FilenSDKError;
+use crate::{error::FilenSDKError, responses::fs::UploadChunkResponse};
 
-use super::{endpoints::{string_url, Endpoints}, FsURL};
-
+use super::{
+    endpoints::{string_url, Endpoints},
+    FsURL,
+};
 
 #[derive(serde::Deserialize, Debug)]
 pub struct FilenResponse<T> {
@@ -25,7 +27,7 @@ pub enum RequestMethod {
 }
 
 #[derive(serde::Serialize)]
-pub struct HttpClientNone { }
+pub struct HttpClientNone {}
 
 pub fn http_none() -> Option<HttpClientNone> {
     None
@@ -34,26 +36,41 @@ pub fn http_none() -> Option<HttpClientNone> {
 /*
 This function assumes that a tokio runtime is already running.
 */
-pub async fn download_into_memory(url: FsURL, client: &reqwest::Client) -> Result<Bytes, FilenSDKError> {
+pub async fn download_into_memory(
+    url: FsURL,
+    client: &reqwest::Client,
+) -> Result<Bytes, FilenSDKError> {
     let request = client.get(string_url(&url));
 
     let response = request.send().await;
     let response_text = match response {
         Ok(response) => response.bytes().await,
-        Err(e) => return Err(FilenSDKError::ReqwestError { err_str: e.to_string() }),
+        Err(e) => {
+            return Err(FilenSDKError::ReqwestError {
+                err_str: e.to_string(),
+            })
+        }
     };
-    
+
     let response_text = response_text.unwrap();
     Ok(response_text)
 }
 
-pub async fn download_to_file_streamed(url: FsURL, client: &reqwest::Client, file_path: &str) -> Result<String, FilenSDKError> {
+pub async fn download_to_file_streamed(
+    url: FsURL,
+    client: &reqwest::Client,
+    file_path: &str,
+) -> Result<String, FilenSDKError> {
     let request = client.get(string_url(&url));
 
     let response = request.send().await;
     let mut response = match response {
         Ok(response) => response,
-        Err(e) => return Err(FilenSDKError::ReqwestError { err_str: e.to_string() }),
+        Err(e) => {
+            return Err(FilenSDKError::ReqwestError {
+                err_str: e.to_string(),
+            })
+        }
     };
 
     let mut file = tokio::fs::File::create(file_path).await.unwrap();
@@ -64,13 +81,93 @@ pub async fn download_to_file_streamed(url: FsURL, client: &reqwest::Client, fil
     Ok(file_path.to_string())
 }
 
+pub async fn upload_from_memory(
+    url: FsURL,
+    client: &reqwest::Client,
+    data: Bytes,
+    api_key: &str,
+) -> Result<UploadChunkResponse, FilenSDKError> {
+    let request = client.post(string_url(&url)).body(data);
+
+    // Setup API key
+    let request = request.bearer_auth(api_key);
+    let request = request.header("Accept", "application/json");
+
+    let response = request.send().await;
+    let response = match response {
+        Ok(response) => response,
+        Err(e) => {
+            return Err(FilenSDKError::ReqwestError {
+                err_str: e.to_string(),
+            })
+        }
+    };
+
+    handle_upload_response(response).await
+}
+
+pub async fn upload_from_file(
+    url: FsURL,
+    client: &reqwest::Client,
+    file_path: &str,
+    api_key: &str,
+) -> Result<UploadChunkResponse, FilenSDKError> {
+    let file = tokio::fs::File::open(file_path).await.unwrap();
+
+    // Use streaming
+    let request = client
+        .post(string_url(&url))
+        .body(reqwest::Body::wrap_stream(
+            tokio_util::io::ReaderStream::new(file),
+        ));
+
+    // Setup API key
+    let request = request.bearer_auth(api_key);
+    let request = request.header("Accept", "application/json");
+
+    let response = request.send().await;
+    let response = match response {
+        Ok(response) => response,
+        Err(e) => {
+            return Err(FilenSDKError::ReqwestError {
+                err_str: e.to_string(),
+            })
+        }
+    };
+
+    handle_upload_response(response).await
+}
+
+async fn handle_upload_response(
+    response: reqwest::Response,
+) -> Result<UploadChunkResponse, FilenSDKError> {
+    let response_text = serde_json::from_str(&response.text().await.unwrap());
+    if response_text.is_err() {
+        return Err(FilenSDKError::SerdeJsonError {
+            err_str: "Failed to parse response text".to_string(),
+            err_msg: response_text.unwrap_err().to_string(),
+        });
+    }
+
+    let response_text: FilenResponse<UploadChunkResponse> = response_text.unwrap();
+    if response_text.status && response_text.data.is_some() {
+        return Ok(response_text.data.unwrap());
+    } else {
+        return Err(FilenSDKError::SerdeJsonError {
+            err_str: "Failed to parse response text".to_string(),
+            err_msg: response_text.message,
+        });
+    }
+}
+
 pub fn make_request<T, U>(
     url: Endpoints,
     client: Option<&reqwest::Client>,
     parameters: Option<HashMap<&str, &str>>,
     api_key: Option<&str>,
     body: Option<U>,
-) -> Result<T, FilenSDKError> where
+) -> Result<T, FilenSDKError>
+where
     T: serde::de::DeserializeOwned + std::fmt::Debug,
     U: serde::Serialize,
 {
@@ -93,8 +190,7 @@ pub fn make_request<T, U>(
         request = request.query(&parameters);
     }
 
-    if let Some(api_key) = api_key
-    {
+    if let Some(api_key) = api_key {
         request = request.bearer_auth(api_key);
     }
 
@@ -106,7 +202,11 @@ pub fn make_request<T, U>(
     let response = rt.block_on(request.send());
     let response_text = match response {
         Ok(response) => response.text(),
-        Err(e) => return Err(FilenSDKError::ReqwestError { err_str: e.to_string() }),
+        Err(e) => {
+            return Err(FilenSDKError::ReqwestError {
+                err_str: e.to_string(),
+            })
+        }
     };
 
     let response_text = rt.block_on(response_text);
@@ -114,16 +214,24 @@ pub fn make_request<T, U>(
     if let Ok(response_text) = response_text {
         let response_json = serde_json::from_str(&response_text);
         if response_json.is_err() {
-            return Err(FilenSDKError::SerdeJsonError { err_str: response_text, err_msg: response_json.unwrap_err().to_string() });
+            return Err(FilenSDKError::SerdeJsonError {
+                err_str: response_text,
+                err_msg: response_json.unwrap_err().to_string(),
+            });
         }
 
         let response_json: FilenResponse<T> = response_json.unwrap();
         if response_json.status && response_json.data.is_some() {
             return Ok(response_json.data.unwrap());
         } else {
-            return Err(FilenSDKError::APIError { message: response_json.message, code: response_json.code });
+            return Err(FilenSDKError::APIError {
+                message: response_json.message,
+                code: response_json.code,
+            });
         }
     } else {
-        return Err(FilenSDKError::ReqwestError { err_str: response_text.unwrap_err().to_string() });
+        return Err(FilenSDKError::ReqwestError {
+            err_str: response_text.unwrap_err().to_string(),
+        });
     }
 }

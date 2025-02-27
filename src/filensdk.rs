@@ -26,6 +26,7 @@ pub struct FilenSDK {
 
 pub const MAX_DECRYPT_THREADS: usize = 10;
 pub const MAX_DOWNLOAD_THREADS: usize = 50;
+pub const MAX_UPLOAD_THREADS: usize = 50;
 
 #[uniffi::export]
 impl FilenSDK {
@@ -105,6 +106,25 @@ impl FilenSDK {
         let creds = self.credentials.lock().unwrap();
         match &*creds {
             Some(creds) => Ok(creds.api_key.clone()),
+            None => Err(FilenSDKError::NoCredentials)
+        }
+    }
+
+    pub fn base_folder(&self) -> Result<String, FilenSDKError> {
+        let creds = self.credentials.lock().unwrap();
+        match &*creds {
+            Some(creds) => match &creds.base_folder_uuid {
+                Some(uuid) => Ok(uuid.clone()),
+                None => Err(FilenSDKError::NoCredentials),
+            },
+            None => Err(FilenSDKError::NoCredentials)
+        }
+    }
+
+    pub fn master_key(&self) -> Result<String, FilenSDKError> {
+        let creds = self.credentials.lock().unwrap();
+        match &*creds {
+            Some(creds) => Ok(creds.master_keys[0].clone()),
             None => Err(FilenSDKError::NoCredentials)
         }
     }

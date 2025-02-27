@@ -4,7 +4,7 @@ use crate::{httpclient::{download_into_memory, download_to_file_streamed, fs_dow
 
 #[uniffi::export]
 impl FilenSDK {
-    async fn download_file_low_disk(
+    pub async fn download_file_low_disk(
         &self,
         uuid: String,
         region: String,
@@ -38,7 +38,7 @@ impl FilenSDK {
     For scenarios where memory is extremely strained, use streaming and file writing to avoid using
     more memory. However, this may be slower than the in-memory decryption method.
     */
-    async fn download_file_low_memory(
+    pub async fn download_file_low_memory(
         &self,
         uuid: String,
         region: String,

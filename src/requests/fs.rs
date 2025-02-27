@@ -15,4 +15,8 @@ request_struct! {
         version: AuthVersion,
         upload_key: String,
     }
+
+    FileInfoBody {
+        uuid: String,
+    }
 }

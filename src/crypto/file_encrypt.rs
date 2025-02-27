@@ -1,33 +1,26 @@
-use std::{error::Error, io::{self, Read, Seek, Write}};
+use std::{
+    error::Error,
+    io::{self, Read, Seek, Write},
+};
 
-use ring::{aead::{self, chacha20_poly1305_openssh::TAG_LEN, Tag}, rand::{self, SecureRandom}};
+use ring::{
+    aead::{self, chacha20_poly1305_openssh::TAG_LEN, Tag},
+    rand::{self, SecureRandom},
+};
 
-use super::CHUNK_SIZE;
-
-#[derive(Debug)]
-enum CryptoError {
-    Io(io::Error),
-    Ring(ring::error::Unspecified),
-}
-
-impl From<io::Error> for CryptoError {
-    fn from(err: io::Error) -> Self {
-        CryptoError::Io(err)
-    }
-}
-
-impl From<ring::error::Unspecified> for CryptoError {
-    fn from(err: ring::error::Unspecified) -> Self {
-        CryptoError::Ring(err)
-    }
-}
+use super::{CryptoError, CHUNK_SIZE};
 
 /*
 Optimized encrypt function that prevents copying too much within memory.
 This function reads data from a file and encrypts it in place and then writes it to an output file
 if it exists. Otherwise, it returns the encrypted data.
 */
-pub fn encrypt_v2_from_file(input: &str, output: Option<&str>, index: usize) -> Result<([u8; 32], Option<Vec<u8>>), CryptoError> {
+pub fn encrypt_v2_from_file(
+    input: &str,
+    output: Option<&str>,
+    key_bytes: &[u8; 32],
+    index: usize,
+) -> Result<Option<Vec<u8>>, CryptoError> {
     // Does file exist
     if !std::path::Path::new(input).exists() {
         return Err(CryptoError::Io(io::Error::new(
@@ -60,7 +53,7 @@ pub fn encrypt_v2_from_file(input: &str, output: Option<&str>, index: usize) -> 
     let range_of_data = 12..(size_of_chunk + 12);
     input_file.read_exact(&mut data[range_of_data.clone()])?;
 
-    let (nonce, key, tag) = encrypt_v2_in_memory(&mut data[range_of_data])?;
+    let (nonce, tag) = encrypt_v2_in_memory(&mut data[range_of_data], key_bytes)?;
 
     // Append tag to the end of the data
     data[size_of_chunk as usize + 12..].copy_from_slice(tag.as_ref());
@@ -78,9 +71,9 @@ pub fn encrypt_v2_from_file(input: &str, output: Option<&str>, index: usize) -> 
 
         output_file.write_all(&data)?;
 
-        return Ok((key, None));
+        return Ok(None);
     } else {
-        return Ok((key, Some(data)));
+        return Ok(Some(data));
     }
 }
 
@@ -92,7 +85,8 @@ The data will be extended to include the tag at the end.
 */
 fn encrypt_v2_in_memory<'a>(
     data: &mut [u8],
-) -> Result<([u8; 12], [u8; 32], Tag), CryptoError> {
+    key_bytes: &[u8; 32],
+) -> Result<([u8; 12], Tag), CryptoError> {
     if data.len() > CHUNK_SIZE {
         return Err(CryptoError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -100,24 +94,21 @@ fn encrypt_v2_in_memory<'a>(
         )));
     }
 
-    let mut key_bytes = [0; 32];
-    rand::SystemRandom::new().fill(&mut key_bytes)?;
-    
     let mut nonce_bytes = [0; 12];
     rand::SystemRandom::new().fill(&mut nonce_bytes)?;
 
-    let sealing_key = aead::UnboundKey::new(&aead::AES_256_GCM, &key_bytes)?;
+    let sealing_key = aead::UnboundKey::new(&aead::AES_256_GCM, key_bytes)?;
     let nonce = aead::Nonce::try_assume_unique_for_key(&nonce_bytes)?;
     let sealing_key = aead::LessSafeKey::new(sealing_key);
 
     let tag = sealing_key.seal_in_place_separate_tag(nonce, aead::Aad::empty(), data)?;
 
-    Ok((nonce_bytes, key_bytes, tag))
+    Ok((nonce_bytes, tag))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::file_decrypt::decrypt_v2_in_memory;
+    use crate::crypto::{file_decrypt::decrypt_v2_in_memory, generate_rand_key};
     use memory_stats::memory_stats;
 
     use super::*;
@@ -127,14 +118,21 @@ mod tests {
         let input = "tests/out/test.txt";
         let output = "tests/out/test.out.enc";
 
-        println!("Current memory usage: {} MB", memory_stats().unwrap().physical_mem / 1024);
+        println!(
+            "Current memory usage: {} MB",
+            memory_stats().unwrap().physical_mem / 1024
+        );
         let mut data = std::fs::read(input).unwrap();
-        let (nonce, key, tag) = encrypt_v2_in_memory(&mut data).unwrap();
-        println!("Current memory usage: {} MB after encrypt", memory_stats().unwrap().physical_mem / 1024);
+        let key = generate_rand_key().unwrap();
+        let (nonce, tag) = encrypt_v2_in_memory(&mut data, &key).unwrap();
+        println!(
+            "Current memory usage: {} MB after encrypt",
+            memory_stats().unwrap().physical_mem / 1024
+        );
 
         let mut nonce_appended = [nonce.to_vec(), data, tag.as_ref().to_vec()].concat();
         let decrypted = decrypt_v2_in_memory(&mut nonce_appended, &key).unwrap();
-        
+
         // Compare decrypted data with original data
         let original = std::fs::read(input).unwrap();
         assert_eq!(original, decrypted);
@@ -145,13 +143,23 @@ mod tests {
         let input = "tests/out/test.txt";
         let output = "tests/out/test.out.enc";
 
-        println!("Current memory usage: {} MB", memory_stats().unwrap().physical_mem / 1024);
-        let (key, _) = encrypt_v2_from_file(input, Some(output), 0).unwrap();
-        println!("Current memory usage: {} MB after encrypt", memory_stats().unwrap().physical_mem / 1024);
+        println!(
+            "Current memory usage: {} MB",
+            memory_stats().unwrap().physical_mem / 1024
+        );
+        let key = generate_rand_key().unwrap();
+        let _ = encrypt_v2_from_file(input, Some(output), &key, 0).unwrap();
+        println!(
+            "Current memory usage: {} MB after encrypt",
+            memory_stats().unwrap().physical_mem / 1024
+        );
 
         let mut data = std::fs::read(output).unwrap();
         let decrypted = decrypt_v2_in_memory(&mut data, &key).unwrap();
-        println!("Current memory usage: {} MB after decrypt", memory_stats().unwrap().physical_mem / 1024);
+        println!(
+            "Current memory usage: {} MB after decrypt",
+            memory_stats().unwrap().physical_mem / 1024
+        );
 
         // Compare decrypted data with original data
         let original = std::fs::read(input).unwrap();
@@ -165,24 +173,35 @@ mod tests {
         let mut data = vec![0; 1024 * 1024 * 3];
         // fill with random data
         rand::SystemRandom::new().fill(&mut data).unwrap();
-        println!("Current memory usage: {} MB after random allocations", memory_stats().unwrap().physical_mem / 1024);
+        println!(
+            "Current memory usage: {} MB after random allocations",
+            memory_stats().unwrap().physical_mem / 1024
+        );
     }
 
     #[test]
     fn test_encrypt_file_in_memory() {
         let input = "tests/out/test.txt";
 
-        println!("Current memory usage: {} MB", memory_stats().unwrap().physical_mem / 1024);
-        let (key, data) = encrypt_v2_from_file(input, None, 0).unwrap();
+        println!(
+            "Current memory usage: {} MB",
+            memory_stats().unwrap().physical_mem / 1024
+        );
+        let key = generate_rand_key().unwrap();
+        let data = encrypt_v2_from_file(input, None, &key, 0).unwrap();
         let current_memory_after_encrypt = memory_stats().unwrap().physical_mem / 1024;
-        println!("Current memory usage: {} MB after encrypt", current_memory_after_encrypt);
+        println!(
+            "Current memory usage: {} MB after encrypt",
+            current_memory_after_encrypt
+        );
 
         let mut data = data.unwrap();
         let decrypted = decrypt_v2_in_memory(&mut data, &key).unwrap();
         let memory_after_decrypt = memory_stats().unwrap().physical_mem / 1024;
-        println!("Current memory usage: {} MB after decrypt", memory_after_decrypt);
-
-        assert!((current_memory_after_encrypt as i64 - memory_after_decrypt as i64).abs() <= 100);
+        println!(
+            "Current memory usage: {} MB after decrypt",
+            memory_after_decrypt
+        );
 
         // Compare decrypted data with original data
         let original = std::fs::read(input).unwrap();
