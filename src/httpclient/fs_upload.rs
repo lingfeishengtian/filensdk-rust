@@ -112,8 +112,12 @@ pub async fn upload_file(
 
     // Start upload threads
     let (tx_upload, mut rx_upload) = tokio::sync::mpsc::channel::<usize>(MAX_UPLOAD_THREADS);
-    for _i in 0..chunks {
+    for i in 0..chunks {
         let (index, data) = rx.recv().await.unwrap();
+        if i > MAX_UPLOAD_THREADS {
+            rx_upload.recv().await.unwrap();
+        }
+
         let tx_upload = tx_upload.clone();
         let uuid = uuid.clone();
         // let key = key.clone();
@@ -192,7 +196,7 @@ mod tests {
 
     #[async_std::test]
     async fn test_upload_file() {
-        let input_file = "tests/out/test.txt";
+        let input_file = "tests/out/Pixelmon-1.16.5-9.1.12-ARM-Mac-FIxed.jar";
         let filensdk = crate::filensdk::FilenSDK::new();
         
         dotenv::dotenv().ok();
