@@ -39,7 +39,7 @@ pub async fn download_file<T, G, B>(
 
     // Start channel for finished tasks to notify completion
     let (tx, mut rx) = tokio::sync::mpsc::channel::<u64>(MAX_DOWNLOAD_THREADS);
-    let (tx_decrypt, mut rx_decrypt) = tokio::sync::mpsc::channel::<(u64, Option<T>)>(32);
+    let (tx_decrypt, mut rx_decrypt) = tokio::sync::mpsc::channel::<(u64, Option<T>)>(MAX_DOWNLOAD_THREADS);
 
     let file_path_clone = file_path.clone();
     let handler = tokio::task::spawn_blocking(move || {

@@ -84,7 +84,7 @@ pub async fn download_to_file_streamed(
 pub async fn upload_from_memory(
     url: FsURL,
     client: &reqwest::Client,
-    data: Bytes,
+    data: Vec<u8>,
     api_key: &str,
 ) -> Result<UploadChunkResponse, FilenSDKError> {
     let request = client.post(string_url(&url)).body(data);
