@@ -79,7 +79,7 @@ define_endpoints![
     FileInfo => ("/v3/file", POST),
 ];
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FsURL {
     Egest(String, String, String, u64),
     Igest(String, String, u64, String, String), 

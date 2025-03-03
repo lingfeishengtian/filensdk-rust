@@ -37,7 +37,7 @@ pub fn http_none() -> Option<HttpClientNone> {
 This function assumes that a tokio runtime is already running.
 */
 pub async fn download_into_memory(
-    url: FsURL,
+    url: &FsURL,
     client: &reqwest::Client,
 ) -> Result<Bytes, FilenSDKError> {
     let request = client.get(string_url(&url));
@@ -57,7 +57,7 @@ pub async fn download_into_memory(
 }
 
 pub async fn download_to_file_streamed(
-    url: FsURL,
+    url: &FsURL,
     client: &reqwest::Client,
     file_path: &str,
 ) -> Result<String, FilenSDKError> {
@@ -199,6 +199,7 @@ where
     }
 
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
     let response = rt.block_on(request.send());
     let response_text = match response {
         Ok(response) => response.text(),

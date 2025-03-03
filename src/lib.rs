@@ -17,3 +17,4 @@ mod requests;
 mod mod_private;
 
 pub use filensdk::FilenSDK;
+pub use crypto::CHUNK_SIZE;

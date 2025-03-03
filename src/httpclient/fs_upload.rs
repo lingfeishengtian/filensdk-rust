@@ -1,49 +1,13 @@
 use std::{fs::File, hash, sync::Arc};
 
 use crate::{
-    crypto::CHUNK_SIZE, error::FilenSDKError, filensdk::MAX_UPLOAD_THREADS,
-    responses::fs::UploadChunkResponse, FilenSDK,
+    crypto::CHUNK_SIZE, error::FilenSDKError, filensdk::MAX_UPLOAD_THREADS, requests::fs::FileMetadata, responses::fs::UploadChunkResponse, FilenSDK
 };
-use serde::{Deserialize, Serialize};
 
-use super::{endpoints::string_url, httpclient::upload_from_memory, FsURL};
-
-#[derive(Serialize, Deserialize)]
-pub struct FileMetadata {
-    pub name: String,
-    pub size: Option<u64>,
-    pub mime: Option<String>,
-    #[serde(serialize_with = "serialize_bytes_as_string")]
-    #[serde(deserialize_with = "deserialize_string_as_bytes")]
-    pub key: [u8; 32],
-    pub last_modified: Option<i64>,
-    pub hash: Option<String>,
-}
-
-/*
-My reasoning for not using a String is for a possibility of using any u8 array of 32 bytes rather
-than being limited to the alphanumeric characters.
-*/
-pub fn serialize_bytes_as_string<S>(key: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_str(String::from_utf8_lossy(key).as_ref())
-}
-
-pub fn deserialize_string_as_bytes<'de, D>(deserializer: D) -> Result<[u8; 32], D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = Deserialize::deserialize(deserializer)?;
-    let bytes = s.as_bytes();
-    let mut key = [0; 32];
-    key.copy_from_slice(&bytes);
-    Ok(key)
-}
+use super::FsURL;
 
 impl FilenSDK {
-    pub async fn upload_file<T, B>(
+    pub async fn upload_file_generic<T, B>(
         &self,
         input_file: &str,
         filen_parent: &str,
@@ -95,7 +59,7 @@ impl FilenSDK {
             name: file_name.clone(),
             size: Some(file_size),
             mime: Some(mime.clone()),
-            key: key.clone(),
+            key: key.to_vec(),
             last_modified: Some(
                 last_modified
                     .duration_since(std::time::UNIX_EPOCH)
@@ -137,11 +101,12 @@ impl FilenSDK {
             String::from_utf8(crate::crypto::generate_rand_key().unwrap().to_vec()).unwrap();
 
         // Start upload threads
-        let (tx_upload, mut rx_upload) = tokio::sync::mpsc::channel::<usize>(MAX_UPLOAD_THREADS);
+        let (tx_upload, mut rx_upload) = tokio::sync::mpsc::channel::<(usize, bool)>(MAX_UPLOAD_THREADS);
         for i in 0..chunks {
             let (index, data) = rt.block_on(rx.recv()).unwrap();
             if i > MAX_UPLOAD_THREADS {
-                rt.block_on(rx_upload.recv());
+                let resp = rt.block_on(rx_upload.recv()).unwrap();
+                crate::return_function_on_result_fail!(resp);
             }
 
             let tx_upload = tx_upload.clone();
@@ -150,10 +115,11 @@ impl FilenSDK {
             let upload_key = upload_key.clone();
             let http_upload_data = http_upload_data.clone();
 
+            let upload_semaphore = self.upload_semaphore.clone();
+
             tokio::spawn(async move {
-                // // Get sha512 hash of chunk
-                // let hash = ring::digest::digest(&ring::digest::SHA512, &data);
-                // let hash = hex::encode(hash.as_ref());
+                // Obtain upload permit
+                let _permit = upload_semaphore.acquire().await.unwrap();
 
                 let (data, hash) = data;
                 let url = FsURL::Igest(
@@ -163,15 +129,14 @@ impl FilenSDK {
                     filen_parent.clone(),
                     hash.clone(),
                 );
-                // let response = upload_from_memory(url, &client, data.into(), &api_key).await;
                 let response = http_upload_data(url, data).await;
 
                 match response {
                     Ok(_) => {
-                        tx_upload.send(index).await.unwrap();
+                        tx_upload.send((index, true)).await.unwrap();
                     }
                     Err(e) => {
-                        println!("Error uploading chunk {}: {:?}", index, e);
+                        tx_upload.send((index, false)).await.unwrap();
                     }
                 }
             });
@@ -179,8 +144,8 @@ impl FilenSDK {
 
         drop(tx_upload);
 
-        while let Some(index) = rt.block_on(rx_upload.recv()) {
-            println!("Uploaded chunk {}", index);
+        while let Some(resp) = rt.block_on(rx_upload.recv()) {
+            crate::return_function_on_result_fail!(resp);
         }
 
         // Mark upload as done

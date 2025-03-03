@@ -19,6 +19,7 @@ pub fn encrypt_v2_from_file(
     output: Option<&str>,
     key_bytes: &[u8; 32],
     index: usize,
+    should_use_counter_nonce: bool,
 ) -> Result<(Option<Vec<u8>>, String), CryptoError> {
     // Does file exist
     if !std::path::Path::new(input).exists() {
@@ -52,8 +53,7 @@ pub fn encrypt_v2_from_file(
     let range_of_data = 12..(size_of_chunk + 12);
     input_file.read_exact(&mut data[range_of_data.clone()])?;
 
-    let (nonce, tag) = encrypt_v2_in_memory(&mut data[range_of_data], key_bytes, index)?;
-    // TODO: Check for nonce reuse
+    let (nonce, tag) = encrypt_v2_in_memory(&mut data[range_of_data], key_bytes, index, should_use_counter_nonce)?;
 
     // Append tag to the end of the data
     data[size_of_chunk as usize + 12..].copy_from_slice(tag.as_ref());
@@ -90,6 +90,7 @@ fn encrypt_v2_in_memory<'a>(
     data: &mut [u8],
     key_bytes: &[u8; 32],
     index: usize,
+    should_use_counter_nonce: bool,
 ) -> Result<([u8; 12], Tag), CryptoError> {
     if data.len() > CHUNK_SIZE {
         return Err(CryptoError::Io(io::Error::new(
@@ -98,15 +99,14 @@ fn encrypt_v2_in_memory<'a>(
         )));
     }
 
-    // TODO: ALLOW CONFIGURABLE NONCE TYPE
-
-    // let mut nonce_bytes = [0; 12];
-    // rand::SystemRandom::new().fill(&mut nonce_bytes)?;
-
-    /*
-    To avoid nonce collisions, we can use the index from the file as the counter.
-    */
-    let nonce_bytes = generate_counter_iv(index.try_into().unwrap());
+    // Nonce generation
+    let nonce_bytes = if should_use_counter_nonce {
+        generate_counter_iv(index.try_into().unwrap())
+    } else {
+        let mut nonce = [0; 12];
+        rand::SystemRandom::new().fill(&mut nonce)?;
+        nonce
+    };
 
     let sealing_key = aead::UnboundKey::new(&aead::AES_256_GCM, key_bytes)?;
     let nonce = aead::Nonce::try_assume_unique_for_key(&nonce_bytes)?;
@@ -135,7 +135,7 @@ mod tests {
         );
         let mut data = std::fs::read(input).unwrap();
         let key = generate_rand_key().unwrap();
-        let (nonce, tag) = encrypt_v2_in_memory(&mut data, &key, 0).unwrap();
+        let (nonce, tag) = encrypt_v2_in_memory(&mut data, &key, 0, true).unwrap();
         println!(
             "Current memory usage: {} MB after encrypt",
             memory_stats().unwrap().physical_mem / 1024
@@ -159,7 +159,7 @@ mod tests {
             memory_stats().unwrap().physical_mem / 1024
         );
         let key = generate_rand_key().unwrap();
-        let _ = encrypt_v2_from_file(input, Some(output), &key, 0).unwrap();
+        let _ = encrypt_v2_from_file(input, Some(output), &key, 0, true).unwrap();
         println!(
             "Current memory usage: {} MB after encrypt",
             memory_stats().unwrap().physical_mem / 1024
@@ -199,7 +199,7 @@ mod tests {
             memory_stats().unwrap().physical_mem / 1024
         );
         let key = generate_rand_key().unwrap();
-        let data = encrypt_v2_from_file(input, None, &key, 0).unwrap();
+        let data = encrypt_v2_from_file(input, None, &key, 0, false).unwrap();
         let current_memory_after_encrypt = memory_stats().unwrap().physical_mem / 1024;
         println!(
             "Current memory usage: {} MB after encrypt",

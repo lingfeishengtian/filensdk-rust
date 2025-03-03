@@ -13,14 +13,8 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct FilenSDK {
     credentials: Arc<Mutex<Option<SDKCreds>>>,
-    /*
-    Temporarily keep the decrypt semaphore here although it most likely will not be needed
-    since the crypto module uses ring, being so fast that scheduling tasks actually slows
-    the process down. For example, in decryption, in-memory decryption removes the need to
-    read from a file after decrypting, saving memory and speed. 
-     */ 
-    pub decrypt_semaphore: Arc<Semaphore>,
     pub download_semaphore: Arc<Semaphore>,
+    pub upload_semaphore: Arc<Semaphore>,
     pub client: Arc<reqwest::Client>
 }
 
@@ -32,11 +26,17 @@ pub const MAX_UPLOAD_THREADS: usize = 50;
 impl FilenSDK {
     #[uniffi::constructor]
     pub fn new() -> Self {
+        // Build Client with timeout
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap();
+
         Self { 
             credentials: Arc::new(Mutex::new(None)),
-            decrypt_semaphore: Arc::new(Semaphore::new(MAX_DECRYPT_THREADS)),
             download_semaphore: Arc::new(Semaphore::new(MAX_DOWNLOAD_THREADS)),
-            client: Arc::new(reqwest::Client::new())
+            upload_semaphore: Arc::new(Semaphore::new(MAX_UPLOAD_THREADS)),
+            client: Arc::new(client)
         }
     }
 
@@ -52,6 +52,12 @@ impl FilenSDK {
 
     pub fn import_credentials(&self, creds: String) {
         let creds: SDKCreds = ron::de::from_str(&creds).unwrap();
+        self.credentials.lock().unwrap().replace(creds);
+    }
+
+    /// DEPRECATED: Don't use JSON for credentials, only here for backwards compatibility
+    pub fn import_json_credentials(&self, creds: String) {
+        let creds: SDKCreds = serde_json::from_str(&creds).unwrap();
         self.credentials.lock().unwrap().replace(creds);
     }
 
