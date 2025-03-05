@@ -7,10 +7,12 @@
 use std::io::Read;
 
 use bytes::Bytes;
+use uniffi_shared_tokio_runtime_proc::uniffi_async_export;
 
 use crate::{httpclient::{self, httpclient::{upload_from_file, upload_from_memory}}, FilenSDK};
 
-#[uniffi::export]
+
+#[uniffi_async_export]
 impl FilenSDK {
     /// Uploads a file to the filen service, automatically handling encryption and threading the upload
     /// process. Optimized for scenarios where memory is not a concern. Rather than writing uploaded chunks

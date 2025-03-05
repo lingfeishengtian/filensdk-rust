@@ -9,5 +9,9 @@
         "other": "on",
         "comments": "off",
         "strings": "on"
-    }
+    },
+        // "rust-analyzer.linkedProjects": [
+        //   "cargo-test/Cargo.toml",
+        //   "codecrafters-git-rust/Cargo.toml"
+        // ]
 }

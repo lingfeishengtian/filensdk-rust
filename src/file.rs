@@ -27,7 +27,7 @@ impl FilenSDK {
             None, 
             Some(&self.api_key()?), 
             Some(FileInfoBody { uuid })
-        )
+        ).await
     }
 
     pub fn decrypt_metadata(&self, metadata: String, key: String) -> Result<FileMetadata, crate::error::FilenSDKError> {
@@ -76,8 +76,8 @@ mod tests {
 
         let uuid = dotenv::var("TEST_UUID").unwrap();
 
-        let response = filensdk.file_info(uuid).await;
-        assert!(response.is_ok());
+        let response = filensdk.file_info(uuid);
+        assert!(response.await.is_ok());
 
         let dotenv_bucket = dotenv::var("TEST_BUCKET").unwrap();
         let dotenv_region = dotenv::var("TEST_REGION").unwrap();

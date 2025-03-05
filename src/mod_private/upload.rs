@@ -7,7 +7,7 @@ use crate::{
 };
 
 impl FilenSDK {
-    pub fn mark_upload_as_done(
+    pub async fn mark_upload_as_done(
         &self,
         uuid: String,
         name: String,
@@ -36,6 +36,6 @@ impl FilenSDK {
                 version: AuthVersion::V2,
                 upload_key,
             }),
-        )
+        ).await
     }
 }

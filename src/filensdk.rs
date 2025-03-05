@@ -13,9 +13,10 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct FilenSDK {
     credentials: Arc<Mutex<Option<SDKCreds>>>,
-    pub download_semaphore: Arc<Semaphore>,
-    pub upload_semaphore: Arc<Semaphore>,
-    pub client: Arc<reqwest::Client>
+    pub(crate) download_semaphore: Arc<Semaphore>,
+    pub(crate) upload_semaphore: Arc<Semaphore>,
+    pub(crate) client: Arc<reqwest::Client>,
+    pub(crate) tokio_runtime: Arc<Mutex<Option<tokio::runtime::Runtime>>>
 }
 
 pub const MAX_DECRYPT_THREADS: usize = 10;
@@ -32,11 +33,22 @@ impl FilenSDK {
             .build()
             .unwrap();
 
+        // Check if tokio runtime is already running, if not, assume Uniffi and create a shared runtime
+        let current_handle = tokio::runtime::Handle::try_current();
+        let run_time = match current_handle {
+            Ok(_) => None,
+            Err(_) => Some(tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap())
+        };
+
         Self { 
             credentials: Arc::new(Mutex::new(None)),
             download_semaphore: Arc::new(Semaphore::new(MAX_DOWNLOAD_THREADS)),
             upload_semaphore: Arc::new(Semaphore::new(MAX_UPLOAD_THREADS)),
-            client: Arc::new(client)
+            client: Arc::new(client),
+            tokio_runtime: Arc::new(Mutex::new(run_time))
         }
     }
 
@@ -82,9 +94,9 @@ impl FilenSDK {
                 two_factor_code: if let Some(code) = two_factor { code } else { "".to_string() },
                 auth_version: auth_info.auth_version,
             })
-        )?;
+        ).await?;
 
-        let user_info = user_info_request(&login_response.api_key)?;
+        let user_info = user_info_request(&login_response.api_key).await?;
         let creds = SDKCreds::new (
             vec![derived_creds.master_key],
             login_response.api_key,
@@ -136,12 +148,12 @@ impl FilenSDK {
     }
 }
 
-fn user_info_request(api_key: &str) -> Result<UserInfoResponse, FilenSDKError> {
+async fn user_info_request(api_key: &str) -> Result<UserInfoResponse, FilenSDKError> {
     make_request(
         Endpoints::UserInfo,
         None,
         None,
         Some(api_key),
         http_none()
-    )
+    ).await
 }

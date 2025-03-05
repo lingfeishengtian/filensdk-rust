@@ -9,6 +9,8 @@ pub mod error;
 pub mod upload;
 pub mod download;
 pub mod file;
+
+pub mod httpserver;
 // pub mod upload;
 
 mod httpclient;

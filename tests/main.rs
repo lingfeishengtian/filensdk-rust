@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use filensdk::FilenSDK;
+    use std::sync::Arc;
+
+    use filensdk::{httpserver::{config::FilenHttpServerConfig, FilenHttpService}, FilenSDK};
 
     #[async_std::test]
     async fn test_retrieve_auth_info() {
@@ -41,5 +43,19 @@ mod tests {
         // Confirm UserID from dotenv
         let user_id = std::env::var("TEST_USER_ID").expect("TEST_USER_ID must be set");
         assert_eq!(sdk.user_id(), user_id);
+    }
+
+    #[test]
+    fn test_http_server() {
+        let sdk = Arc::new(FilenSDK::new());
+        dotenv::dotenv().ok();
+        let credentials = std::env::var("TEST_CRED_IMPORT").expect("TEST_CRED_IMPORT must be set");
+        sdk.import_credentials(credentials);
+        
+        FilenHttpService::new(sdk, FilenHttpServerConfig {
+            port: 8080,
+            max_connections: 100,
+            timeout: 5,
+        }, "tests/tmp".to_string()).start_server();
     }
 }

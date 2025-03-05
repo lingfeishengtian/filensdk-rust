@@ -3,6 +3,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use ring::aead::{self};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 pub fn stream_decrypt_data(
     input: &Path,
@@ -112,6 +113,22 @@ pub fn write_output(output: &Path, data: &[u8], index: Option<usize>) -> Result<
     Ok(())
 }
 
+// Use tokio to create async writes
+pub async fn write_output_async(output: &Path, data: &[u8], index: Option<usize>) -> Result<(), Box<dyn Error>> {
+    let mut output_file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(output).await?;
+
+    if let Some(idx) = index {
+        let offset = (idx * super::CHUNK_SIZE) as u64;
+        output_file.seek(SeekFrom::Start(offset)).await?;
+    }
+
+    output_file.write_all(data).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests{
     use super::*;
@@ -136,5 +153,14 @@ mod tests{
         output_file.read_exact( &mut output_data).unwrap();
 
         assert_eq!(output_data, vec![0x41; 1024 * 1024]);
+    }
+
+    fn assert_send<T: Send>(_: T) {}
+
+    #[test]
+    fn test_send() {
+        assert_send(decrypt_v2_in_memory);
+        assert_send(write_output);
+        assert_send(write_output_async);
     }
 }

@@ -52,8 +52,9 @@ pub async fn download_into_memory(
         }
     };
 
-    let response_text = response_text.unwrap();
-    Ok(response_text)
+    Ok(response_text.map_err(|e| FilenSDKError::ReqwestError {
+        err_str: e.to_string(),
+    })?)
 }
 
 pub async fn download_to_file_streamed(
@@ -160,7 +161,7 @@ async fn handle_upload_response(
     }
 }
 
-pub fn make_request<T, U>(
+pub async fn make_request<T, U>(
     url: Endpoints,
     client: Option<&reqwest::Client>,
     parameters: Option<HashMap<&str, &str>>,
@@ -198,9 +199,7 @@ where
         request = request.json(&body);
     }
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let _guard = rt.enter();
-    let response = rt.block_on(request.send());
+    let response = request.send().await;
     let response_text = match response {
         Ok(response) => response.text(),
         Err(e) => {
@@ -210,7 +209,7 @@ where
         }
     };
 
-    let response_text = rt.block_on(response_text);
+    let response_text = response_text.await;
 
     if let Ok(response_text) = response_text {
         let response_json = serde_json::from_str(&response_text);

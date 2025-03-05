@@ -103,9 +103,9 @@ impl FilenSDK {
         // Start upload threads
         let (tx_upload, mut rx_upload) = tokio::sync::mpsc::channel::<(usize, bool)>(MAX_UPLOAD_THREADS);
         for i in 0..chunks {
-            let (index, data) = rt.block_on(rx.recv()).unwrap();
+            let (index, data) = rx.recv().await.unwrap();
             if i > MAX_UPLOAD_THREADS {
-                let resp = rt.block_on(rx_upload.recv()).unwrap();
+                let resp = rx_upload.recv().await.unwrap();
                 crate::return_function_on_result_fail!(resp);
             }
 
@@ -144,7 +144,7 @@ impl FilenSDK {
 
         drop(tx_upload);
 
-        while let Some(resp) = rt.block_on(rx_upload.recv()) {
+        while let Some(resp) = rx_upload.recv().await {
             crate::return_function_on_result_fail!(resp);
         }
 
@@ -159,7 +159,7 @@ impl FilenSDK {
             "false".to_string(),
             String::from_utf8(metadata_enc).unwrap(),
             upload_key
-        )?;
+        ).await?;
 
         Ok(uuid)
     }

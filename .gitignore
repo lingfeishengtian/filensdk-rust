@@ -1,5 +1,5 @@
 # Rust output
-/target
+**/target
 
 # Uniffi Bindgen output 
 swiftuniffi/

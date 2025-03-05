@@ -116,7 +116,7 @@ mod tests {
         
         // sdk.download_file_low_disk(uuid, region, bucket, key, output_dir.clone(), file_name.clone(), file_size).await;
         // sdk.download_file_low_memory(uuid, region, bucket, key, output_dir.clone(), "tests/tmp".to_string(), file_name.clone(), file_size).await;
-        let res = ctx.sdk.download_file(ctx.uuid.clone(), ctx.output_dir).await;
+        let res = ctx.sdk.download_file_blocking(ctx.uuid.clone(), ctx.output_dir);
 
         assert!(res.is_err());
     }
@@ -130,7 +130,7 @@ mod tests {
         // sdk.download_file_low_memory(uuid, region, bucket, key, output_dir.clone(), "tests/tmp".to_string(), file_name.clone(), file_size).await;
         let file_path = format!("{}/{}", ctx.output_dir, ctx.file_name);
 
-        ctx.sdk.download_file(ctx.uuid.clone(), file_path).await.unwrap();
+        ctx.sdk.download_file_blocking(ctx.uuid.clone(), file_path).unwrap();
     }
 
     #[test_context(DownloadTestContext, skip_teardown)]
@@ -139,12 +139,12 @@ mod tests {
         let random_start = rand::random::<u64>() % (ctx.file_size / 2);
         let random_end = rand::random::<u64>() % (ctx.file_size / 2) + ctx.file_size / 2;
 
-        let byte_range = ctx.sdk.download_file_chunked(
+        let byte_range = ctx.sdk.download_file_chunked_blocking(
             ctx.uuid,
             format!("{}/{}-chunked", ctx.output_dir, ctx.file_name),
             Some(random_start),
             Some(random_end),
-        ).await.unwrap();
+        ).unwrap();
 
         // Check that output_dir/file_name exists and has the correct sha256
         let file_path = format!("{}/{}", ctx.output_dir, ctx.file_name);
