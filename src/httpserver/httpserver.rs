@@ -17,7 +17,7 @@ use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
-use crate::mod_private::task_stream::read_ahead_download_stream;
+use crate::error::FilenSDKError;
 use crate::{filensdk, FilenSDK, CHUNK_SIZE};
 
 use super::config::{self, FilenHttpServerConfig};
@@ -79,20 +79,6 @@ impl FilenHttpService {
                     // {
                     //     eprintln!("Error serving connection: {}", err);
                     // }
-
-                    // if let Err(err) = http1::Builder::new()
-                    //     .serve_connection(io, service_fn(move |req| {
-                    //         let filen_sdk = filen_sdk.clone();
-                    //         let cloned_tmp_dir = cloned_tmp_dir.clone();
-                    //         async move {
-                    //             hello(req, filen_sdk, &cloned_tmp_dir).await
-                    //         }
-                    //     }))
-                    //     .await
-                    // {
-                    //     eprintln!("Error serving connection: {}", err);
-                    // }
-
                     if let Err(err) = http1::Builder::new().serve_connection(io, service_fn(move |req| {
                         let filen_sdk = filen_sdk.clone();
                         let cloned_tmp_dir = cloned_tmp_dir.clone();
@@ -106,6 +92,17 @@ impl FilenHttpService {
             }
         });
     }
+}
+
+fn convert_byte_stream_to_hyper_stream(
+    stream: impl Stream<Item = Result<Bytes, FilenSDKError>>,
+) -> impl Stream<Item = Result<hyper::body::Frame<Bytes>, Infallible>> {
+    use futures::stream::StreamExt;
+
+    stream.map(|item| match item {
+        Ok(bytes) => Ok(hyper::body::Frame::data(bytes)),
+        Err(_) => Ok(hyper::body::Frame::data(Bytes::new())),
+    })
 }
 
 async fn hello(
@@ -189,17 +186,16 @@ async fn hello(
     let file_info = filen_sdk.file_info(uuid.clone()).await.unwrap();
     let decrypted = filen_sdk.decrypt_get_response(file_info).unwrap();
 
-    let stream = read_ahead_download_stream(
+    let stream = filen_sdk.read_ahead_download_stream(
         size,
         start_byte.unwrap_or(0),
-        filen_sdk_clone.client.clone(),
         &decrypted.region,
         &decrypted.bucket,
         &uuid,
         String::from_utf8(decrypted.key).unwrap(),
     );
 
-    let body_stream = StreamBody::new(stream);
+    let body_stream = StreamBody::new(convert_byte_stream_to_hyper_stream(stream));
     let boxed = BoxBody::new(body_stream);
 
     Ok(Response::builder()

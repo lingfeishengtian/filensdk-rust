@@ -1,7 +1,7 @@
-
 #[cfg(test)]
 mod tests {
     use filensdk::download::FileByteRange;
+    use filensdk::download_stream::FilenDownloadStream;
     use filensdk::FilenSDK;
     use filensdk::CHUNK_SIZE;
     use test_context::test_context;
@@ -12,9 +12,10 @@ mod tests {
     use std::fs::File;
     use std::io::Seek;
     use std::io::Write;
+    use std::sync::Arc;
 
     struct DownloadTestContext {
-        sdk: FilenSDK,
+        sdk: Arc<FilenSDK>,
         uuid: String,
         region: String,
         bucket: String,
@@ -29,7 +30,7 @@ mod tests {
     impl AsyncTestContext for DownloadTestContext {
         async fn setup() -> Self {
             dotenv::dotenv().ok();
-            let sdk = FilenSDK::new();
+            let sdk = Arc::new(FilenSDK::new());
 
             // Import credentials from dotenv
             let creds = std::env::var("TEST_CRED_IMPORT").unwrap();
@@ -96,7 +97,8 @@ mod tests {
 
     fn sha256_digest_partial(file_path: &str, index: u64) -> String {
         let mut file = File::open(file_path).unwrap();
-        file.seek(std::io::SeekFrom::Start(index * CHUNK_SIZE as u64)).unwrap();
+        file.seek(std::io::SeekFrom::Start(index * CHUNK_SIZE as u64))
+            .unwrap();
         let mut reader = std::io::BufReader::new(file);
         let mut context = ring::digest::Context::new(&ring::digest::SHA256);
         let mut buffer = vec![0; CHUNK_SIZE];
@@ -113,10 +115,12 @@ mod tests {
     #[async_std::test]
     async fn test_failed_path(ctx: DownloadTestContext) {
         dotenv::dotenv().ok();
-        
+
         // sdk.download_file_low_disk(uuid, region, bucket, key, output_dir.clone(), file_name.clone(), file_size).await;
         // sdk.download_file_low_memory(uuid, region, bucket, key, output_dir.clone(), "tests/tmp".to_string(), file_name.clone(), file_size).await;
-        let res = ctx.sdk.download_file_blocking(ctx.uuid.clone(), ctx.output_dir);
+        let res = ctx
+            .sdk
+            .download_file_blocking(ctx.uuid.clone(), ctx.output_dir);
 
         assert!(res.is_err());
     }
@@ -125,12 +129,31 @@ mod tests {
     #[async_std::test]
     async fn test_download_file(ctx: &mut DownloadTestContext) {
         dotenv::dotenv().ok();
-        
+
         // sdk.download_file_low_disk(uuid, region, bucket, key, output_dir.clone(), file_name.clone(), file_size).await;
         // sdk.download_file_low_memory(uuid, region, bucket, key, output_dir.clone(), "tests/tmp".to_string(), file_name.clone(), file_size).await;
         let file_path = format!("{}/{}", ctx.output_dir, ctx.file_name);
 
-        ctx.sdk.download_file_blocking(ctx.uuid.clone(), file_path).unwrap();
+        ctx.sdk
+            .download_file_blocking(ctx.uuid.clone(), file_path)
+            .unwrap();
+    }
+
+    #[test_context(DownloadTestContext)]
+    #[test]
+    fn test_download_file_low_memory(ctx: &mut DownloadTestContext) {
+        dotenv::dotenv().ok();
+        let file_path = format!("{}/{}", ctx.output_dir, ctx.file_name);
+        // Remove file if it exists
+        remove_file(&file_path).unwrap_or_default();
+
+        ctx.sdk
+            .download_file_low_memory_blocking(ctx.uuid.clone(), file_path, ctx.output_dir.clone() + "/tmp")
+            .unwrap();
+
+        // Confirm tmp dir was made
+        assert!(std::path::Path::new(&(ctx.output_dir.clone() + "/tmp")).exists());
+        std::fs::remove_dir_all(ctx.output_dir.clone() + "/tmp").unwrap();
     }
 
     #[test_context(DownloadTestContext, skip_teardown)]
@@ -139,12 +162,15 @@ mod tests {
         let random_start = rand::random::<u64>() % (ctx.file_size / 2);
         let random_end = rand::random::<u64>() % (ctx.file_size / 2) + ctx.file_size / 2;
 
-        let byte_range = ctx.sdk.download_file_chunked_blocking(
-            ctx.uuid,
-            format!("{}/{}-chunked", ctx.output_dir, ctx.file_name),
-            Some(random_start),
-            Some(random_end),
-        ).unwrap();
+        let byte_range = ctx
+            .sdk
+            .download_file_chunked_blocking(
+                ctx.uuid,
+                format!("{}/{}-chunked", ctx.output_dir, ctx.file_name),
+                Some(random_start),
+                Some(random_end),
+            )
+            .unwrap();
 
         // Check that output_dir/file_name exists and has the correct sha256
         let file_path = format!("{}/{}", ctx.output_dir, ctx.file_name);
@@ -160,6 +186,34 @@ mod tests {
             let partial_digest = sha256_digest_partial(&file_path, i);
             let original_digest = sha256_digest_partial(&file_path, i);
             assert_eq!(partial_digest, original_digest);
+        }
+    }
+
+    #[test_context(DownloadTestContext)]
+    #[test]
+    fn test_streamed_download(ctx: &mut DownloadTestContext) {
+        // Delete old file since we append to it
+        let file_path = format!("{}/{}", ctx.output_dir, ctx.file_name);
+        remove_file(&file_path).unwrap_or_default();
+
+        let stream = FilenDownloadStream::new(
+            ctx.file_size,
+            0,
+            ctx.sdk.clone(),
+            &ctx.region,
+            &ctx.bucket,
+            &ctx.uuid,
+            ctx.key.clone(),
+        );
+
+        while let Ok(chunk) = stream.next_blocking() {
+            let file_path = format!("{}/{}", ctx.output_dir, ctx.file_name);
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&file_path)
+                .unwrap();
+            file.write_all(&chunk).unwrap();
         }
     }
 

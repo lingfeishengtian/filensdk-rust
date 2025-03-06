@@ -2,6 +2,7 @@ uniffi::setup_scaffolding!();
 
 pub mod credentials;
 pub mod filensdk;
+pub mod download_stream;
 pub mod auth;
 pub mod responses;
 pub mod error;

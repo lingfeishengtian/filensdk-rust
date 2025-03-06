@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use bytes::BytesMut;
 use ring::aead::{self};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
@@ -63,15 +64,20 @@ fn decrypt_v2(
     }
 
     // Read whole file into memory
-    let mut data = vec![0u8; file_size as usize];
+    let mut data: BytesMut = BytesMut::with_capacity(file_size as usize);
+    data.resize(file_size as usize, 0);
     input_file.read_exact(&mut data)?;
 
     // Decrypt
-    let fin_buf = decrypt_v2_in_memory(&mut data, key_bytes)?;
+    let fin_buf = decrypt_v2_bytes(&mut data, key_bytes)?;
 
     write_output(output, &fin_buf, index)
 }
 
+#[deprecated(
+    since = "1.0.0",
+    note = "Please use the Bytes version"
+)]
 pub fn decrypt_v2_in_memory<'a>(
     data: &'a mut [u8],
     key_bytes: &'a [u8],
@@ -96,6 +102,38 @@ pub fn decrypt_v2_in_memory<'a>(
     let fin_buf = key.open_in_place(nonce, aad, &mut data[12..]).map_err(|_| "Decryption failed")?;
 
     Ok(fin_buf)
+}
+
+pub fn decrypt_v2_bytes(
+    data: &mut BytesMut,
+    key_bytes: &[u8],
+) -> Result<BytesMut, Box<dyn Error>> {
+    if data.len() < 12 + 16 {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Input data too small",
+        )));
+    }
+
+    // Read IV (first 12 bytes)
+    let iv = &data[0..12];
+
+    // Decrypt
+    let unbound_key = aead::UnboundKey::new(&aead::AES_256_GCM, &key_bytes)
+        .map_err(|_| "Invalid key length")?;
+    let nonce = aead::Nonce::assume_unique_for_key(iv.try_into().expect("slice with incorrect length"));
+    let aad = aead::Aad::empty();
+
+    let key = aead::LessSafeKey::new(unbound_key);
+    let mut bytes_mod = data.split_off(12);
+
+    let fin_buf = key.open_in_place(nonce, aad, &mut bytes_mod).map_err(|_| "Decryption failed")?;
+
+    // Remove IV from the data
+    let fin_buf_len = fin_buf.len();
+    bytes_mod.truncate(fin_buf_len);
+
+    Ok(bytes_mod)
 }
 
 pub fn write_output(output: &Path, data: &[u8], index: Option<usize>) -> Result<(), Box<dyn Error>> {
@@ -133,6 +171,7 @@ pub async fn write_output_async(output: &Path, data: &[u8], index: Option<usize>
 mod tests{
     use super::*;
     use std::fs::remove_file;
+    use memory_stats::memory_stats;
 
     #[test]
     fn test_stream_decrypt_data() {
@@ -143,7 +182,17 @@ mod tests{
         let index = None;
         let should_clear = true;
 
+
+        println!(
+            "Current memory usage: {} MB",
+            memory_stats().unwrap().physical_mem / 1024
+        );
         let result = stream_decrypt_data(input, output, &key, version, index, should_clear);
+        println!(
+            "Current memory usage: {} MB",
+            memory_stats().unwrap().physical_mem / 1024
+        );
+        
         println!("{:?}", result);
         assert!(result.is_ok());
 
@@ -159,7 +208,7 @@ mod tests{
 
     #[test]
     fn test_send() {
-        assert_send(decrypt_v2_in_memory);
+        assert_send(decrypt_v2_bytes);
         assert_send(write_output);
         assert_send(write_output_async);
     }

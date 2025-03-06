@@ -143,7 +143,10 @@ mod tests {
 
         let mut nonce_appended = [nonce.to_vec(), data, tag.as_ref().to_vec()].concat();
         let decrypted = decrypt_v2_in_memory(&mut nonce_appended, &key).unwrap();
-
+        println!(
+            "Current memory usage: {} MB after decrypt",
+            memory_stats().unwrap().physical_mem / 1024
+        );
         // Compare decrypted data with original data
         let original = std::fs::read(input).unwrap();
         assert_eq!(original, decrypted);

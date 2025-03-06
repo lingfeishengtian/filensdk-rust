@@ -74,9 +74,9 @@ pub async fn download_to_file_streamed(
         }
     };
 
-    let mut file = tokio::fs::File::create(file_path).await.unwrap();
-    while let Some(chunk) = response.chunk().await.unwrap() {
-        file.write_all(&chunk).await.unwrap();
+    let mut file = tokio::fs::File::create(file_path).await?;
+    while let Some(chunk) = response.chunk().await? {
+        file.write_all(&chunk).await?;
     }
 
     Ok(file_path.to_string())

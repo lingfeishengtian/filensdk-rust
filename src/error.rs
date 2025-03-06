@@ -44,6 +44,9 @@ pub enum FilenSDKError {
     #[error("Error creating path: {path}")]
     PathIsDirectory { path: String },
 
+    #[error("Stream Ended")]
+    StreamEnded,
+
     #[error("Unknown Error: {err_str}")]
     UnknownError { err_str: String },
 }
@@ -77,3 +80,10 @@ impl From<std::io::Error> for FilenSDKError {
         FilenSDKError::UnknownError { err_str: err.to_string() }
     }
 }
+
+impl From<reqwest::Error> for FilenSDKError {
+    fn from(err: reqwest::Error) -> Self {
+        FilenSDKError::ReqwestError { err_str: err.to_string() }
+    }
+}
+

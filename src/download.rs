@@ -2,8 +2,7 @@ use bytes::Bytes;
 use uniffi_shared_tokio_runtime_proc::uniffi_async_export;
 
 use crate::{
-    httpclient::{download_into_memory, download_to_file_streamed, FsURL},
-    FilenSDK,
+    httpclient::{download_into_memory, download_to_file_streamed, FsURL}, mod_private::download::{LowDiskDownloadFunctions, LowMemoryDownloadFunctions}, FilenSDK
 };
 
 #[derive(uniffi::Record)]
@@ -40,37 +39,6 @@ macro_rules! extract_path_and_filename {
     }};
 }
 
-// #[uniffi::export]
-// impl FilenSDK {
-//     #[uniffi::method(name = "internal_download_file_low_disk")]
-//     pub fn internal_download_file_low_disk_blocking(
-//         &self,
-//         uuid: String,
-//         region: String,
-//         bucket: String,
-//         key: String,
-//         output_dir: String,
-//         output_filename: Option<String>,
-//         file_size: u64,
-//         start_byte: Option<u64>,
-//         end_byte: Option<u64>,
-//     ) -> Result<FileByteRange, crate::error::FilenSDKError> {
-//         let rt = self.tokio_runtime.lock().unwrap();
-//         let rt = rt.as_ref().unwrap();
-//         rt.block_on(self.internal_download_file_low_disk(
-//             uuid,
-//             region,
-//             bucket,
-//             key,
-//             output_dir,
-//             output_filename,
-//             file_size,
-//             start_byte,
-//             end_byte,
-//         ))
-//     }
-// }
-
 #[uniffi_async_export]
 impl FilenSDK {
     /// Intentionally shared function for cases where all information is known, or more a greater
@@ -94,7 +62,7 @@ impl FilenSDK {
 
         let output_dir = std::path::Path::new(&output_dir);
 
-        self.download_file_generic(
+        self.orderless_file_download(
             &uuid,
             &region,
             &bucket,
@@ -102,13 +70,9 @@ impl FilenSDK {
             output_dir,
             output_filename,
             file_size,
-            move |url: FsURL, _index: u64| {
-                let client = client.clone();
-                async move { download_into_memory(&url, &client).await }
-            },
-            |data: Bytes| -> Bytes { data },
             start_byte,
             end_byte,
+            LowDiskDownloadFunctions { client: client.clone() },
         )
         .await
         .map(|downloaded_range| FileByteRange {
@@ -146,7 +110,7 @@ impl FilenSDK {
 
         let output_dir = std::path::Path::new(&output_dir);
 
-        self.download_file_generic(
+        self.orderless_file_download(
             &uuid,
             &region,
             &bucket,
@@ -154,24 +118,12 @@ impl FilenSDK {
             &output_dir,
             output_filename,
             file_size,
-            move |url: FsURL, index: u64| {
-                let client = client.clone();
-                let tmp_dir = tmp_dir.clone() + "/" + &index.to_string();
-                async move { download_to_file_streamed(&url, &client, &tmp_dir).await }
-            },
-            |data: String| -> Bytes {
-                let file = std::fs::File::open(&data).unwrap();
-                let mut reader = std::io::BufReader::new(file);
-                let mut buffer = Vec::new();
-                std::io::Read::read_to_end(&mut reader, &mut buffer).unwrap();
-
-                // Delete the file after reading
-                std::fs::remove_file(&data).unwrap();
-
-                Bytes::from(buffer)
-            },
             start_byte,
             end_byte,
+            LowMemoryDownloadFunctions {
+                client: client.clone(),
+                tmp_dir,
+            },
         )
         .await
         .map(|downloaded_range| FileByteRange {
@@ -253,9 +205,7 @@ impl FilenSDK {
         end_byte: Option<u64>
     ) -> Result<FileByteRange, crate::error::FilenSDKError> {
         // Retrieve and decrypt metadata
-        println!("Retrieving metadata for file with UUID: {}", uuid);
         let metadata = self.file_info(uuid.clone()).await?;
-        println!("Decrypting metadata for file with UUID: {}", uuid);
         let decrypted = self.decrypt_metadata(metadata.metadata, self.master_key()?)?;
 
         println!("download_file_chunked: metadata:");

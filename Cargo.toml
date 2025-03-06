@@ -27,6 +27,7 @@ futures-core = "0.3.31"
 async-stream = "0.3.6"
 range-set = "0.0.11"
 uniffi_shared_tokio_runtime_proc = { path = "uniffi-shared-tokio-runtime-proc" }
+futures = "0.3.31"
 
 [build-dependencies]
 uniffi = { version = "0.29.0", features = [ "build" ] }

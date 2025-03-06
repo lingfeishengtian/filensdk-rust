@@ -22,6 +22,7 @@ pub struct FilenSDK {
 pub const MAX_DECRYPT_THREADS: usize = 10;
 pub const MAX_DOWNLOAD_THREADS: usize = 50;
 pub const MAX_UPLOAD_THREADS: usize = 50;
+pub const MAX_READ_AHEAD_THREADS: u64 = 50;
 
 #[uniffi::export]
 impl FilenSDK {

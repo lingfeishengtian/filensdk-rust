@@ -1,3 +1,5 @@
+use uniffi_shared_tokio_runtime_proc::uniffi_async_export;
+
 use crate::{httpclient::make_request, requests::fs::{FileInfoBody, FileMetadata}, FilenSDK};
 
 #[derive(uniffi::Record, Debug)]
@@ -16,6 +18,7 @@ pub struct DecryptedFileGetResponse {
     pub version: i64,
 }
 
+#[uniffi_async_export]
 impl FilenSDK {
     pub async fn file_info(
         &self,
@@ -29,7 +32,9 @@ impl FilenSDK {
             Some(FileInfoBody { uuid })
         ).await
     }
+}
 
+impl FilenSDK {
     pub fn decrypt_metadata(&self, metadata: String, key: String) -> Result<FileMetadata, crate::error::FilenSDKError> {
         let metadata = crate::crypto::metadata::decrypt_metadata(
             &metadata.as_bytes(),
@@ -68,16 +73,16 @@ mod tests {
 
     use super::*;
 
-    #[async_std::test]
-    async fn test_file_info() {
+    #[test]
+    fn test_file_info() {
         dotenv::dotenv().ok();
         let filensdk = FilenSDK::new();
         filensdk.import_credentials(dotenv::var("TEST_CRED_IMPORT").unwrap());
 
         let uuid = dotenv::var("TEST_UUID").unwrap();
 
-        let response = filensdk.file_info(uuid);
-        assert!(response.await.is_ok());
+        let response = filensdk.file_info_blocking(uuid);
+        assert!(response.is_ok());
 
         let dotenv_bucket = dotenv::var("TEST_BUCKET").unwrap();
         let dotenv_region = dotenv::var("TEST_REGION").unwrap();
