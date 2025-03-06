@@ -1,4 +1,4 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, error};
 
 use crate::{crypto::CryptoError, responses::auth::AuthVersion};
 
@@ -47,6 +47,9 @@ pub enum FilenSDKError {
     #[error("Stream Ended")]
     StreamEnded,
 
+    #[error("Unknown Standard Error: {err_str}")]
+    UnknownStandardError { err_str: String },
+
     #[error("Unknown Error: {err_str}")]
     UnknownError { err_str: String },
 }
@@ -87,3 +90,8 @@ impl From<reqwest::Error> for FilenSDKError {
     }
 }
 
+impl From<Box<dyn std::error::Error>> for FilenSDKError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        FilenSDKError::UnknownStandardError { err_str: err.to_string() }
+    }
+}

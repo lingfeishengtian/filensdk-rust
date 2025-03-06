@@ -1,8 +1,16 @@
-use std::{collections::VecDeque, future::Future, sync::{atomic::AtomicI8, Arc}, time::Duration};
+use std::{
+    collections::VecDeque,
+    future::Future,
+    sync::{atomic::AtomicI8, Arc},
+    time::Duration,
+};
 
 use bytes::{Bytes, BytesMut};
 use futures::Stream;
-use tokio::{runtime::{EnterGuard, Handle, Runtime}, task::JoinHandle};
+use tokio::{
+    runtime::{EnterGuard, Handle, Runtime},
+    task::JoinHandle,
+};
 
 use super::FsURL;
 use crate::{
@@ -14,7 +22,8 @@ use crate::{
 };
 
 impl FilenSDK {
-    // Self is not needed since client is not explicitly used
+    /// This method of download does not care about the order of the chunks, and will download them in parallel.
+    /// This is useful for downloading large files, when streaming is not necessary.
     pub async fn orderless_file_download<T>(
         &self,
         uuid: &str,
@@ -111,10 +120,10 @@ impl FilenSDK {
                     &decrypt_in_memory,
                     Some((i - start_chunk) as usize),
                 )
-                .await;
+                .await?;
             } else {
                 let out_path = output_file_path.join(format!("{}", i));
-                write_output_async(&out_path, &decrypt_in_memory, None).await;
+                write_output_async(&out_path, &decrypt_in_memory, None).await?;
             }
         }
 
@@ -154,6 +163,9 @@ impl FilenSDK {
         }
     }
 
+    // TODO: Allow for custom download functions
+    /// Stream downloaded chunks, this method is sensitive to the order of the chunks and will not continue until the previous chunk is downloaded.
+    /// However, it will look ahead and download the next MAX_READ_AHEAD_THREADS chunks in parallel.
     pub fn read_ahead_download_stream(
         &self,
         size: u64,
@@ -187,7 +199,6 @@ impl FilenSDK {
 
                 task_deque.push_back(tokio::spawn(Self::summon_single_download_decrypt_task(i, link, client.clone(), key.clone())));
             }
-
 
             loop {
                 if current_chunk >= total_chunks {
