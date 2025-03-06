@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use ring::aead::{self};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 

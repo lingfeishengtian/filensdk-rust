@@ -1,8 +1,7 @@
 use bytes::Bytes;
 use uniffi_shared_tokio_runtime_proc::uniffi_async_export;
 
-use crate::{
-    httpclient::{download_into_memory, download_to_file_streamed, FsURL}, mod_private::download::{LowDiskDownloadFunctions, LowMemoryDownloadFunctions}, FilenSDK
+use crate::{mod_private::net_download_methods::{LowDiskInteractionFunctions, LowMemoryInteractionFunctions}, FilenSDK
 };
 
 #[derive(uniffi::Record)]
@@ -72,7 +71,11 @@ impl FilenSDK {
             file_size,
             start_byte,
             end_byte,
-            LowDiskDownloadFunctions { client: client.clone() },
+            LowDiskInteractionFunctions {
+                client:client.clone(), 
+                api_key: "".to_string(),
+                should_use_counter_nonce: false
+            }
         )
         .await
         .map(|downloaded_range| FileByteRange {
@@ -120,9 +123,11 @@ impl FilenSDK {
             file_size,
             start_byte,
             end_byte,
-            LowMemoryDownloadFunctions {
+            LowMemoryInteractionFunctions {
                 client: client.clone(),
+                api_key: "".to_string(),
                 tmp_dir,
+                should_use_counter_nonce: false,
             },
         )
         .await

@@ -1,25 +1,21 @@
 use std::{fs::File, hash, sync::Arc};
 
 use crate::{
-    crypto::CHUNK_SIZE, error::FilenSDKError, filensdk::MAX_UPLOAD_THREADS, requests::fs::FileMetadata, responses::fs::UploadChunkResponse, FilenSDK
+    crypto::CHUNK_SIZE, download, error::FilenSDKError, filensdk::MAX_UPLOAD_THREADS, mod_private::net_download_methods::FilenNetInteractionFunctions, requests::fs::FileMetadata, responses::fs::UploadChunkResponse, FilenSDK
 };
 
 use super::FsURL;
 
 impl FilenSDK {
-    pub async fn upload_file_generic<T, B>(
+    pub async fn upload_file_generic<T>(
         &self,
         input_file: &str,
         filen_parent: &str,
         name: &str,
-        encrypt_data: impl (Fn(u64, &[u8; 32]) -> (T, String)) + Send + 'static,
-        http_upload_data: impl Fn(FsURL, T) -> B + Send + Sync + Clone + 'static,
+        download_funcs: impl FilenNetInteractionFunctions<T>,
     ) -> Result<String, FilenSDKError>
     where
-        T: Send + 'static,
-        B: std::future::Future<Output = Result<UploadChunkResponse, FilenSDKError>>
-            + Send
-            + 'static,
+        T: Send + Sync + 'static,
     {
         // Does file exist?
         if !std::path::Path::new(&input_file).exists() {
@@ -27,13 +23,6 @@ impl FilenSDK {
                 file: input_file.to_string(),
             });
         }
-
-        // Create tokio runtime using builder to configure multi-threaded runtime
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let _guard = rt.enter();
 
         let file = File::open(input_file).unwrap();
 
@@ -89,10 +78,12 @@ impl FilenSDK {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, (T, String))>(MAX_UPLOAD_THREADS);
 
         // Start encrypt thread
+        let input_file_clone = input_file.to_string();
+        let download_funcs_clone = download_funcs.clone();
         tokio::spawn(async move {
             for i in 0..chunks {
                 // let data = crate::crypto::file_encrypt::encrypt_v2_from_file(&input_file_clone, None, &key, i).unwrap();
-                let data = encrypt_data(i as u64, &key);
+                let data = download_funcs_clone.encrypt_data(&input_file_clone, i as u64, &key);
                 tx.send((i, data)).await.unwrap();
             }
         });
@@ -113,7 +104,7 @@ impl FilenSDK {
             let uuid = uuid.clone();
             let filen_parent = filen_parent.to_string();
             let upload_key = upload_key.clone();
-            let http_upload_data = http_upload_data.clone();
+            let download_funcs = download_funcs.clone();
 
             let upload_semaphore = self.upload_semaphore.clone();
 
@@ -129,7 +120,7 @@ impl FilenSDK {
                     filen_parent.clone(),
                     hash.clone(),
                 );
-                let response = http_upload_data(url, data).await;
+                let response = download_funcs.http_upload_data(url, data).await;
 
                 match response {
                     Ok(_) => {

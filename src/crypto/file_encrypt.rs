@@ -3,6 +3,7 @@ use std::{
     io::{self, Read, Seek, Write},
 };
 
+use bytes::Bytes;
 use ring::{
     aead::{self, chacha20_poly1305_openssh::TAG_LEN, Tag}, digest::{digest, SHA512}, rand::{self, SecureRandom}
 };
@@ -20,7 +21,7 @@ pub fn encrypt_v2_from_file(
     key_bytes: &[u8; 32],
     index: usize,
     should_use_counter_nonce: bool,
-) -> Result<(Option<Vec<u8>>, String), CryptoError> {
+) -> Result<(Option<Bytes>, String), CryptoError> {
     // Does file exist
     if !std::path::Path::new(input).exists() {
         return Err(CryptoError::Io(io::Error::new(
@@ -76,7 +77,7 @@ pub fn encrypt_v2_from_file(
 
         return Ok((None, hash));
     } else {
-        return Ok((Some(data), hash));
+        return Ok((Some(Bytes::from(data)), hash));
     }
 }
 
@@ -209,7 +210,7 @@ mod tests {
             current_memory_after_encrypt
         );
 
-        let mut data = data.0.unwrap();
+        let mut data = data.0.unwrap().try_into_mut().unwrap();
         let decrypted = decrypt_v2_in_memory(&mut data, &key).unwrap();
         let memory_after_decrypt = memory_stats().unwrap().physical_mem / 1024;
         println!(

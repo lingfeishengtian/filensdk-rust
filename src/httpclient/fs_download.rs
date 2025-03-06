@@ -14,11 +14,7 @@ use tokio::{
 
 use super::FsURL;
 use crate::{
-    crypto::file_decrypt::{decrypt_v2_bytes, write_output, write_output_async},
-    error::FilenSDKError,
-    filensdk::{MAX_DOWNLOAD_THREADS, MAX_READ_AHEAD_THREADS},
-    mod_private::download::{DownloadFunctions, LowDiskDownloadFunctions},
-    FilenSDK, CHUNK_SIZE,
+    crypto::file_decrypt::{decrypt_v2_bytes, write_output, write_output_async}, error::FilenSDKError, filensdk::{MAX_DOWNLOAD_THREADS, MAX_READ_AHEAD_THREADS}, mod_private::net_download_methods::{FilenNetInteractionFunctions, LowDiskInteractionFunctions}, FilenSDK, CHUNK_SIZE
 };
 
 impl FilenSDK {
@@ -35,7 +31,7 @@ impl FilenSDK {
         file_size: u64,
         byte_range_start: u64,
         byte_range_end: u64,
-        download_funcs: impl DownloadFunctions<T>,
+        download_funcs: impl FilenNetInteractionFunctions<T>,
     ) -> Result<(u64, u64), FilenSDKError>
     where
         T: Send + Sync + 'static,
@@ -139,8 +135,10 @@ impl FilenSDK {
         client: Arc<reqwest::Client>,
         key: String,
     ) -> Option<Bytes> {
-        let download_method = LowDiskDownloadFunctions {
+        let download_method = LowDiskInteractionFunctions {
             client: client.clone(),
+            api_key: "".to_string(),
+            should_use_counter_nonce: false,
         };
         let downloaded_bytes = FilenSDK::attempt_download_chunk_task(link, i, &download_method)
             .await

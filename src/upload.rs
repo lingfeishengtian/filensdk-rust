@@ -9,7 +9,7 @@ use std::io::Read;
 use bytes::Bytes;
 use uniffi_shared_tokio_runtime_proc::uniffi_async_export;
 
-use crate::{httpclient::{self, httpclient::{upload_from_file, upload_from_memory}}, FilenSDK};
+use crate::{httpclient::{self, httpclient::{upload_from_file, upload_from_memory}}, mod_private::net_download_methods::{LowDiskInteractionFunctions, LowMemoryInteractionFunctions}, FilenSDK};
 
 
 #[uniffi_async_export]
@@ -52,24 +52,10 @@ impl FilenSDK {
             &input_file.clone(),
             &filen_parent,
             &name,
-            move |i, key| {
-                let input_file = input_file.clone();
-                let (encrypted_data, hash) = crate::crypto::file_encrypt::encrypt_v2_from_file(
-                    &input_file,
-                    None,
-                    key,
-                    i as usize,
-                    should_use_counter_nonce
-                )
-                .unwrap();
-                (encrypted_data, hash)
-            },
-            move |url, data| {
-                let client = client.clone();
-                {
-                    let value = api_key.clone();
-                    async move { upload_from_memory(url, &client, data.unwrap(), &value).await }
-                }
+            LowDiskInteractionFunctions {
+                client: client.clone(),
+                api_key: api_key.clone(),
+                should_use_counter_nonce,
             },
         )
         .await
@@ -124,34 +110,11 @@ impl FilenSDK {
             &input_file.clone(),
             &filen_parent,
             &name,
-            move |i, key| {
-                let input_file = input_file.clone();
-                // let nonce = if should_use_counter_nonce {
-                //     crate::crypto::generate_counter_iv(i)
-                // } else {
-                //     crate::crypto::generate_rand_iv().unwrap()
-                // };
-                let output_file = tmp_output_dir.to_string() + "/" + &i.to_string();
-                let (_encrypted_data, hash) = crate::crypto::file_encrypt::encrypt_v2_from_file(
-                    &input_file,
-                    Some(&output_file),
-                    key,
-                    i as usize,
-                    should_use_counter_nonce
-                )
-                .unwrap();
-                (output_file, hash)
-            },
-            move |url, data| {
-                let client = client.clone();
-                {
-                    let value = api_key.clone();
-                    async move { 
-                        let fut = upload_from_file(url, &client, &data, &value).await;
-                        std::fs::remove_file(&data).unwrap();
-                        fut
-                    }
-                }
+            LowMemoryInteractionFunctions {
+                client: client.clone(),
+                api_key: api_key.clone(),
+                tmp_dir: tmp_output_dir.clone(),
+                should_use_counter_nonce,
             },
         )
         .await
@@ -204,8 +167,8 @@ mod tests {
 
     use super::*;
 
-    #[async_std::test]
-    async fn test_upload_file() {
+    #[test]
+    fn test_upload_file() {
         // let input_file = "tests/out/test.txt";
         let input_file = "tests/out/Pixelmon-1.16.5-9.1.12-ARM-Mac-FIxed.jar";
         let filensdk = crate::filensdk::FilenSDK::new();
@@ -219,15 +182,14 @@ mod tests {
 
         let result = filensdk
             // .upload_file_low_disk(input_file.to_string(), filen_parent, name, true)
-            .upload_file_low_memory(input_file.to_string(), filen_parent, name, "tests/tmp/test_up".to_string(), true)
-            .await;
+            .upload_file_low_memory_blocking(input_file.to_string(), filen_parent, name, "tests/tmp/test_up".to_string(), true);
         assert!(result.is_ok());
 
         let uuid = result.unwrap();
 
         // Download file
         let download_path = "tests/out/test_download_out";
-        let file_info = filensdk.file_info(uuid.clone()).await.unwrap();
+        let file_info = filensdk.file_info_blocking(uuid.clone()).unwrap();
 
         let decrypted_metadata = crate::crypto::metadata::decrypt_metadata(
             &file_info.metadata.as_bytes(),
@@ -238,8 +200,7 @@ mod tests {
         let metadata: FileMetadata = serde_json::from_str(&decrypted_metadata_str).unwrap();
 
         let download_result = filensdk
-            .download_file(uuid, download_path.to_string())
-            .await;
+            .download_file_blocking(uuid, download_path.to_string());
 
         // Compare files
         let file = std::fs::File::open(input_file).unwrap();
@@ -247,7 +208,7 @@ mod tests {
         let mut buffer = Vec::new();
         std::io::Read::read_to_end(&mut reader, &mut buffer).unwrap();
 
-        let file = std::fs::File::open(download_path.to_owned() + "/" + &metadata.name.to_owned())
+        let file = std::fs::File::open(download_path.to_owned())
             .unwrap();
         let mut reader = std::io::BufReader::new(file);
         let mut buffer_download = Vec::new();

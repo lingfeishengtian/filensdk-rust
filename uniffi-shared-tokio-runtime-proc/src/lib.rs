@@ -43,7 +43,7 @@ pub fn uniffi_async_export(_attr: TokenStream, input: TokenStream) -> TokenStrea
         let async_sig = &async_method.sig;
         let method_name = &async_sig.ident;
         let blocking_method_name = format_ident!("{}_blocking", method_name);
-        let blocking_method_name_str = format!("{}_blocking", method_name);
+        let method_name_str = method_name.to_string();
 
         // Extract input types and names
         let input_args: Vec<_> = async_sig.inputs.iter()
@@ -71,7 +71,7 @@ pub fn uniffi_async_export(_attr: TokenStream, input: TokenStream) -> TokenStrea
         };
         
         quote! {
-            #[uniffi::method(name = #blocking_method_name_str)]
+            #[uniffi::method(name = #method_name_str)]
             pub fn #blocking_method_name(
                 &self, 
                 #(#input_pats: #input_tys),*
