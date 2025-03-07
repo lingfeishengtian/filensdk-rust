@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use uniffi_shared_tokio_runtime_proc::uniffi_async_export;
 
-use crate::{mod_private::net_download_methods::{LowDiskInteractionFunctions, LowMemoryInteractionFunctions}, FilenSDK
+use crate::{mod_private::net_interaction::{LowDiskInteractionFunctions, LowMemoryInteractionFunctions}, FilenSDK
 };
 
 #[derive(uniffi::Record)]

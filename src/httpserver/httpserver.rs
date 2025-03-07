@@ -144,9 +144,7 @@ async fn hello(
     println!("Downloading file with UUID: {}", uuid);
 
     let ooo = uuid::Uuid::new_v4().to_string();
-    let file_path = format!("{}/{}", tmpdir, ooo);
 
-    // let size: u64 = 2165928384;
     let size: u64 = 1594202329;
 
     // Check for range header
@@ -173,11 +171,6 @@ async fn hello(
         None => (None, None),
     };
 
-    let filen_sdk_clone = filen_sdk.clone();
-    let file_path_clone = file_path.clone();
-    let uuid_clone = uuid.clone();
-    let ooo_clone = ooo.clone();
-
     // Create dir
     tokio::fs::create_dir_all(tmpdir).await.unwrap();
 
@@ -189,9 +182,9 @@ async fn hello(
     let stream = filen_sdk.read_ahead_download_stream(
         size,
         start_byte.unwrap_or(0),
-        &decrypted.region,
-        &decrypted.bucket,
-        &uuid,
+        decrypted.region,
+        decrypted.bucket,
+        uuid,
         String::from_utf8(decrypted.key).unwrap(),
     );
 
@@ -206,10 +199,6 @@ async fn hello(
             format!("{}", end_byte.unwrap_or(size) - start_byte.unwrap_or(0)),
         )
         .header("Accept-Ranges", "bytes")
-        .header(
-            "Content-Disposition",
-            format!("attachment; filename=\"{}\"", &uuid),
-        )
         .header(
             "Content-Range",
             format!(

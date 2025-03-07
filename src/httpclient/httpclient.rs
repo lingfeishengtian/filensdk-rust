@@ -89,22 +89,8 @@ pub async fn upload_from_memory(
     api_key: &str,
 ) -> Result<UploadChunkResponse, FilenSDKError> {
     let request = client.post(string_url(&url)).body(data);
-
-    // Setup API key
-    let request = request.bearer_auth(api_key);
-    let request = request.header("Accept", "application/json");
-
-    let response = request.send().await;
-    let response = match response {
-        Ok(response) => response,
-        Err(e) => {
-            return Err(FilenSDKError::ReqwestError {
-                err_str: e.to_string(),
-            })
-        }
-    };
-
-    handle_upload_response(response).await
+    
+    make_upload_request(request, api_key).await
 }
 
 pub async fn upload_from_file(
@@ -122,6 +108,13 @@ pub async fn upload_from_file(
             tokio_util::io::ReaderStream::new(file),
         ));
 
+    make_upload_request(request, api_key).await
+}
+
+async fn make_upload_request(
+    request: reqwest::RequestBuilder,
+    api_key: &str,
+) -> Result<UploadChunkResponse, FilenSDKError> {
     // Setup API key
     let request = request.bearer_auth(api_key);
     let request = request.header("Accept", "application/json");
@@ -136,12 +129,6 @@ pub async fn upload_from_file(
         }
     };
 
-    handle_upload_response(response).await
-}
-
-async fn handle_upload_response(
-    response: reqwest::Response,
-) -> Result<UploadChunkResponse, FilenSDKError> {
     let response_text = serde_json::from_str(&response.text().await.unwrap());
     if response_text.is_err() {
         return Err(FilenSDKError::SerdeJsonError {

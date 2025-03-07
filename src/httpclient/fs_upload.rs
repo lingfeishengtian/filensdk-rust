@@ -1,7 +1,7 @@
 use std::{fs::File, hash, sync::Arc};
 
 use crate::{
-    crypto::CHUNK_SIZE, download, error::FilenSDKError, filensdk::MAX_UPLOAD_THREADS, mod_private::net_download_methods::FilenNetInteractionFunctions, requests::fs::FileMetadata, responses::fs::UploadChunkResponse, FilenSDK
+    crypto::CHUNK_SIZE, download, error::FilenSDKError, filensdk::MAX_UPLOAD_THREADS, mod_private::net_interaction::FilenNetInteractionFunctions, requests::fs::FileMetadata, responses::fs::UploadChunkResponse, FilenSDK
 };
 
 use super::FsURL;

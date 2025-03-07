@@ -14,7 +14,14 @@ use tokio::{
 
 use super::FsURL;
 use crate::{
-    crypto::file_decrypt::{decrypt_v2_bytes, write_output, write_output_async}, error::FilenSDKError, filensdk::{MAX_DOWNLOAD_THREADS, MAX_READ_AHEAD_THREADS}, mod_private::net_download_methods::{FilenNetInteractionFunctions, LowDiskInteractionFunctions}, FilenSDK, CHUNK_SIZE
+    crypto::file_decrypt::{decrypt_v2_bytes, write_output, write_output_async},
+    error::FilenSDKError,
+    filensdk::{MAX_DOWNLOAD_THREADS, MAX_READ_AHEAD_THREADS},
+    httpclient::calculate_chunk_range,
+    mod_private::net_interaction::{
+        FilenNetInteractionFunctions, LowDiskInteractionFunctions,
+    },
+    FilenSDK, CHUNK_SIZE,
 };
 
 impl FilenSDK {
@@ -53,16 +60,10 @@ impl FilenSDK {
             tokio::sync::mpsc::channel::<(u64, Option<T>)>(MAX_DOWNLOAD_THREADS);
 
         // Calculate start and end chunk range
-        let start_chunk = std::cmp::max(byte_range_start / crate::crypto::CHUNK_SIZE as u64, 0);
-        let end_chunk = std::cmp::min(
-            (byte_range_end + crate::crypto::CHUNK_SIZE as u64 - 1)
-                / crate::crypto::CHUNK_SIZE as u64,
-            file_size / crate::crypto::CHUNK_SIZE as u64 + 1,
-        );
+        let (start_chunk, end_chunk) =
+            calculate_chunk_range(byte_range_start, byte_range_end, file_size);
 
         let output_file_path = output_dir.to_path_buf();
-        println!("Downloading chunks {} to {}", start_chunk, end_chunk);
-
         let semaphore = self.download_semaphore.clone();
 
         let uuid = uuid.to_string();
@@ -168,15 +169,11 @@ impl FilenSDK {
         &self,
         size: u64,
         start_byte: u64,
-        region: &str,
-        bucket: &str,
-        uuid: &str,
+        region: String,
+        bucket: String,
+        uuid: String,
         key: String,
     ) -> impl Stream<Item = Result<Bytes, FilenSDKError>> {
-        let region = region.to_string();
-        let bucket = bucket.to_string();
-        let uuid = uuid.to_string();
-
         let total_chunks = size / (CHUNK_SIZE as u64) + 1;
         let start_chunk = start_byte / (CHUNK_SIZE as u64);
 

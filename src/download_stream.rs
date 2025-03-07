@@ -19,9 +19,9 @@ impl FilenDownloadStream {
         size: u64,
         start_byte: u64,
         filen_sdk: Arc<FilenSDK>,
-        region: &str,
-        bucket: &str,
-        uuid: &str,
+        region: String,
+        bucket: String,
+        uuid: String,
         key: String,
     ) -> Self {
         Self {
@@ -53,9 +53,9 @@ impl FilenDownloadStream {
             size as u64,
             start_byte,
             filen_sdk,
-            &region,
-            &bucket,
-            uuid,
+            region,
+            bucket,
+            uuid.to_string(),
             String::from_utf8(decrypted.key).unwrap(),
         ))
     }

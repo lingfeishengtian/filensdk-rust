@@ -2,7 +2,7 @@ use std::{future::Future, sync::Arc, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 
-use super::{net_download_methods::FilenNetInteractionFunctions, DOWNLOAD_RETRIES};
+use super::{net_interaction::FilenNetInteractionFunctions, DOWNLOAD_RETRIES};
 use crate::{error::FilenSDKError, httpclient::{download_into_memory, download_to_file_streamed, FsURL}, FilenSDK};
 
 impl FilenSDK {

@@ -120,7 +120,7 @@ fn encrypt_v2_in_memory<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::{file_decrypt::decrypt_v2_in_memory, generate_rand_key};
+    use crate::crypto::{file_decrypt::{decrypt_v2_bytes, decrypt_v2_in_memory}, generate_rand_key};
     use memory_stats::memory_stats;
 
     use super::*;
