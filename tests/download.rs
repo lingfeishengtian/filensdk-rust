@@ -179,8 +179,8 @@ mod tests {
         assert_eq!(digest, sha);
 
         // Compare partial sha256 with original
-        let start_ind = byte_range.start_byte / CHUNK_SIZE as u64;
-        let end_ind = byte_range.end_byte / CHUNK_SIZE as u64;
+        let start_ind = byte_range.file_byte_range.start_byte / CHUNK_SIZE as u64;
+        let end_ind = byte_range.file_byte_range.end_byte / CHUNK_SIZE as u64;
 
         for i in start_ind..end_ind {
             let partial_digest = sha256_digest_partial(&file_path, i);
@@ -200,9 +200,9 @@ mod tests {
             ctx.file_size,
             0,
             ctx.sdk.clone(),
-            &ctx.region,
-            &ctx.bucket,
-            &ctx.uuid,
+            ctx.region.clone(),
+            ctx.bucket.clone(),
+            ctx.uuid.clone(),
             ctx.key.clone(),
         );
 

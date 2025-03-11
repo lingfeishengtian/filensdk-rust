@@ -148,16 +148,15 @@ async fn make_upload_request(
     }
 }
 
-pub async fn make_request<T, U>(
+pub fn construct_request<U>(
     url: Endpoints,
     client: Option<&reqwest::Client>,
     parameters: Option<HashMap<&str, &str>>,
     api_key: Option<&str>,
     body: Option<U>,
-) -> Result<T, FilenSDKError>
-where
-    T: serde::de::DeserializeOwned + std::fmt::Debug,
-    U: serde::Serialize,
+) -> Result<reqwest::RequestBuilder, FilenSDKError>
+where 
+U: serde::Serialize,
 {
     let client: &reqwest::Client = match client {
         Some(client) => client,
@@ -186,7 +185,21 @@ where
         request = request.json(&body);
     }
 
-    let response = request.send().await;
+    Ok(request)
+}
+
+pub async fn make_request<T, U>(
+    url: Endpoints,
+    client: Option<&reqwest::Client>,
+    parameters: Option<HashMap<&str, &str>>,
+    api_key: Option<&str>,
+    body: Option<U>,
+) -> Result<T, FilenSDKError>
+where
+    T: serde::de::DeserializeOwned + std::fmt::Debug,
+    U: serde::Serialize,
+{
+    let response = construct_request(url, client, parameters, api_key, body)?.send().await;
     let response_text = match response {
         Ok(response) => response.text(),
         Err(e) => {

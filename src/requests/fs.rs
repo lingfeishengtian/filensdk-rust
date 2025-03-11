@@ -19,6 +19,11 @@ request_struct! {
     FileInfoBody {
         uuid: String,
     }
+
+    DirContentBody {
+        uuid: String,
+        folders_only: bool,
+    }
 }
 
 

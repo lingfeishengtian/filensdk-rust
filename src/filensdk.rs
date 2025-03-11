@@ -13,7 +13,11 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct FilenSDK {
     credentials: Arc<Mutex<Option<SDKCreds>>>,
+    /// Limit the number of concurrent downloads (Many asynchronous downloads can occur, which
+    /// may cause rate limiting issues. This semaphore puts a hard cap on the number of concurrent
+    /// downloads made within this Filen SDK instance)
     pub(crate) download_semaphore: Arc<Semaphore>,
+    /// See Download Semaphore
     pub(crate) upload_semaphore: Arc<Semaphore>,
     pub(crate) client: Arc<reqwest::Client>,
     pub(crate) tokio_runtime: Arc<Mutex<Option<tokio::runtime::Runtime>>>

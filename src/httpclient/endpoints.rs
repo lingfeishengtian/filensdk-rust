@@ -77,6 +77,9 @@ define_endpoints![
     UploadDone => ("/v3/upload/done", POST),
     // File
     FileInfo => ("/v3/file", POST),
+
+    // Dir
+    DirContent => ("/v3/dir/content", POST),
 ];
 
 #[derive(Debug, Clone)]

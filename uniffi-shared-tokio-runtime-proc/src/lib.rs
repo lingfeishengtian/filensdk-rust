@@ -13,9 +13,6 @@ use syn::{
 /// Proc macro to generate blocking and async impl blocks with UniFFI export
 #[proc_macro_attribute]
 pub fn uniffi_async_export(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    println!("attr: \"{_attr}\"");
-    println!("item: \"{input}\"");
-
     let i_clone = input.clone();
     let input_impl = parse_macro_input!(input as ItemImpl);
     

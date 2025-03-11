@@ -2,7 +2,8 @@
 mod tests {
     use std::sync::Arc;
 
-    use filensdk::{httpserver::{config::FilenHttpServerConfig, FilenHttpService}, FilenSDK};
+    use filensdk::{httpserver::{config::FilenHttpServerConfig, FilenHttpService}, responses::fs::{DirContentFolder, DirContentUpload}, FilenSDK};
+    use futures::{StreamExt, TryStreamExt};
 
     #[async_std::test]
     async fn test_retrieve_auth_info() {
@@ -17,7 +18,6 @@ mod tests {
 
     #[async_std::test]
     async fn test_login() {
-        dotenv::dotenv().ok();
         if std::env::var("SHOULD_TEST_LOGIN").unwrap_or_else(|_| "false".to_string()) == "false" {
             return;
         }
@@ -27,10 +27,13 @@ mod tests {
         let otp = std::env::var("TEST_OTP").ok();
         let status = sdk.login(&email, &password, otp.map(|s| s.to_string())).await;
 
+        println!("{:?}", sdk.export_credentials());
+
         assert_eq!(status.is_ok(), true);
         // Confirm UserID from dotenv
         let user_id = std::env::var("TEST_USER_ID").expect("TEST_USER_ID must be set");
         assert_eq!(sdk.user_id(), user_id);
+
     }
 
     #[test]
@@ -58,4 +61,7 @@ mod tests {
             timeout: 5,
         }, "tests/tmp".to_string()).start_server();
     }
+
+    use memory_stats::memory_stats;
+    use tokio_util::io::StreamReader;
 }

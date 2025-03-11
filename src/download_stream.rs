@@ -44,19 +44,15 @@ impl FilenDownloadStream {
         start_byte: u64,
     ) -> Result<Self, FilenSDKError> {
         let info = filen_sdk.file_info(uuid.to_owned()).await?;
-        let decrypted = filen_sdk.decrypt_get_response(info)?;
-        let size = decrypted.size;
-        let region = decrypted.region;
-        let bucket = decrypted.bucket;
 
         Ok(Self::new(
-            size as u64,
+            info.size,
             start_byte,
             filen_sdk,
-            region,
-            bucket,
+            info.region,
+            info.bucket,
             uuid.to_string(),
-            String::from_utf8(decrypted.key).unwrap(),
+            String::from_utf8(info.key).unwrap(),
         ))
     }
 

@@ -6,6 +6,7 @@ pub mod download_stream;
 pub mod auth;
 pub mod responses;
 pub mod error;
+pub mod dir;
 
 pub mod upload;
 pub mod download;

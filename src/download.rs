@@ -1,13 +1,22 @@
 use bytes::Bytes;
 use uniffi_shared_tokio_runtime_proc::uniffi_async_export;
 
-use crate::{mod_private::net_interaction::{LowDiskInteractionFunctions, LowMemoryInteractionFunctions}, FilenSDK
+use crate::{
+    file::FilenFileDetailed,
+    mod_private::net_interaction::{LowDiskInteractionFunctions, LowMemoryInteractionFunctions},
+    FilenSDK,
 };
 
 #[derive(uniffi::Record)]
 pub struct FileByteRange {
     pub start_byte: u64,
     pub end_byte: u64,
+}
+
+#[derive(uniffi::Record)]
+pub struct FilenFileDownloadResult {
+    pub file_byte_range: FileByteRange,
+    pub file_info: FilenFileDetailed,
 }
 
 macro_rules! extract_path_and_filename {
@@ -72,10 +81,10 @@ impl FilenSDK {
             start_byte,
             end_byte,
             LowDiskInteractionFunctions {
-                client:client.clone(), 
+                client: client.clone(),
                 api_key: "".to_string(),
-                should_use_counter_nonce: false
-            }
+                should_use_counter_nonce: false,
+            },
         )
         .await
         .map(|downloaded_range| FileByteRange {
@@ -84,10 +93,10 @@ impl FilenSDK {
         })
     }
 
-    // /// Intentionally shared function for cases where all information is known, or more a greater
-    // /// need for control over the download process is needed.
-    // ///
-    // /// For more information with the parameters to this function, see the documentation for Filen's API.
+    /// Intentionally shared function for cases where all information is known, or more a greater
+    /// need for control over the download process is needed.
+    ///
+    /// For more information with the parameters to this function, see the documentation for Filen's API.
     pub async fn internal_download_file_low_memory(
         &self,
         uuid: String,
@@ -148,25 +157,27 @@ impl FilenSDK {
         output_file: String,
         start_byte: Option<u64>,
         end_byte: Option<u64>,
-    ) -> Result<FileByteRange, crate::error::FilenSDKError> {
+    ) -> Result<FilenFileDownloadResult, crate::error::FilenSDKError> {
         // Retrieve and decrypt metadata
         let metadata = self.file_info(uuid.clone()).await?;
-        let decrypted = self.decrypt_metadata(metadata.metadata, self.master_key()?)?;
-
         let (output_dir, file_name) = extract_path_and_filename!(output_file);
 
-        // Download the partial file
-        self.internal_download_file_low_disk(
-            metadata.uuid,
-            metadata.region,
-            metadata.bucket,
-            String::from_utf8(decrypted.key).unwrap(),
-            output_dir,
-            Some(file_name),
-            decrypted.size.unwrap_or(0),
-            start_byte,
-            end_byte,
-        ).await
+        Ok(FilenFileDownloadResult {
+            file_info: metadata.clone(),
+            file_byte_range: self
+                .internal_download_file_low_disk(
+                    metadata.uuid,
+                    metadata.region,
+                    metadata.bucket,
+                    String::from_utf8(metadata.key).unwrap(),
+                    output_dir,
+                    Some(file_name),
+                    metadata.size,
+                    start_byte,
+                    end_byte,
+                )
+                .await?,
+        })
     }
 
     /// Convenience function to download a partial file with low memory usage.
@@ -177,26 +188,29 @@ impl FilenSDK {
         tmp_dir: String,
         start_byte: Option<u64>,
         end_byte: Option<u64>,
-    ) -> Result<FileByteRange, crate::error::FilenSDKError> {
+    ) -> Result<FilenFileDownloadResult, crate::error::FilenSDKError> {
         // Retrieve and decrypt metadata
         let metadata = self.file_info(uuid.clone()).await?;
-        let decrypted = self.decrypt_metadata(metadata.metadata, self.master_key()?)?;
-
         let (output_dir, file_name) = extract_path_and_filename!(output_file);
 
         // Download the partial file
-        self.internal_download_file_low_memory(
-            metadata.uuid,
-            metadata.region,
-            metadata.bucket,
-            String::from_utf8(decrypted.key).unwrap(),
-            output_dir,
-            Some(file_name),
-            tmp_dir,
-            decrypted.size.unwrap_or(0),
-            start_byte,
-            end_byte,
-        ).await
+        Ok(FilenFileDownloadResult {
+            file_info: metadata.clone(),
+            file_byte_range: self
+                .internal_download_file_low_memory(
+                    metadata.uuid,
+                    metadata.region,
+                    metadata.bucket,
+                    String::from_utf8(metadata.key).unwrap(),
+                    output_dir,
+                    Some(file_name),
+                    tmp_dir,
+                    metadata.size,
+                    start_byte,
+                    end_byte,
+                )
+                .await?,
+        })
     }
 
     /// Download the file to the specified output_dir all in chunks. The output will have a folder
@@ -207,24 +221,27 @@ impl FilenSDK {
         uuid: String,
         output_dir: String,
         start_byte: Option<u64>,
-        end_byte: Option<u64>
-    ) -> Result<FileByteRange, crate::error::FilenSDKError> {
+        end_byte: Option<u64>,
+    ) -> Result<FilenFileDownloadResult, crate::error::FilenSDKError> {
         // Retrieve and decrypt metadata
         let metadata = self.file_info(uuid.clone()).await?;
-        let decrypted = self.decrypt_metadata(metadata.metadata, self.master_key()?)?;
 
-        println!("download_file_chunked: metadata:");
-        self.internal_download_file_low_disk(
-            metadata.uuid,
-            metadata.region,
-            metadata.bucket,
-            String::from_utf8(decrypted.key).unwrap(),
-            output_dir,
-            None,
-            decrypted.size.unwrap_or(0),
-            start_byte,
-            end_byte,
-        ).await
+        Ok(FilenFileDownloadResult {
+            file_info: metadata.clone(),
+            file_byte_range: self
+                .internal_download_file_low_disk(
+                    metadata.uuid,
+                    metadata.region,
+                    metadata.bucket,
+                    String::from_utf8(metadata.key).unwrap(),
+                    output_dir,
+                    None,
+                    metadata.size,
+                    start_byte,
+                    end_byte,
+                )
+                .await?,
+        })
     }
 
     /// See download_file_chunked for more information. This function is for scenarios where memory
@@ -235,36 +252,46 @@ impl FilenSDK {
         output_dir: String,
         tmp_dir: String,
         start_byte: Option<u64>,
-        end_byte: Option<u64>
-    ) -> Result<FileByteRange, crate::error::FilenSDKError> {
+        end_byte: Option<u64>,
+    ) -> Result<FilenFileDownloadResult, crate::error::FilenSDKError> {
         // Retrieve and decrypt metadata
         let metadata = self.file_info(uuid.clone()).await?;
-        let decrypted = self.decrypt_metadata(metadata.metadata, self.master_key()?)?;
 
-        self.internal_download_file_low_memory(
-            metadata.uuid,
-            metadata.region,
-            metadata.bucket,
-            String::from_utf8(decrypted.key).unwrap(),
-            output_dir,
-            None,
-            tmp_dir,
-            decrypted.size.unwrap_or(0),
-            start_byte,
-            end_byte,
-        ).await
+        Ok(FilenFileDownloadResult {
+            file_info: metadata.clone(),
+            file_byte_range: self
+                .internal_download_file_low_memory(
+                    metadata.uuid,
+                    metadata.region,
+                    metadata.bucket,
+                    String::from_utf8(metadata.key).unwrap(),
+                    output_dir,
+                    None,
+                    tmp_dir,
+                    metadata.size,
+                    start_byte,
+                    end_byte,
+                )
+                .await?,
+        })
     }
 
-    /// For scenarios when memory is not a concern, use this function to download the file into memory.
+    /// For scenarios when memory is not a concern, use this function to download the file into memory
+    /// and write it to the output file.
+    ///
+    /// # Arguments
+    /// - `uuid` - The UUID of the file to download.
+    /// - `output_file` - The path to the file to write the downloaded file to.
+    ///
+    /// # Returns
+    /// A `FileByteRange` struct with the start and end byte of the downloaded file.
     pub async fn download_file(
         &self,
         uuid: String,
         output_file: String,
-    ) -> Result<(), crate::error::FilenSDKError> {
-        // Download the file
-        self.download_partial_file(uuid, output_file, None, None).await?;
-
-        Ok(())
+    ) -> Result<FilenFileDownloadResult, crate::error::FilenSDKError> {
+        self.download_partial_file(uuid, output_file, None, None)
+            .await
     }
 
     /// For scenarios where memory is extremely strained, use streaming and file writing to avoid using
@@ -274,10 +301,8 @@ impl FilenSDK {
         uuid: String,
         output_file: String,
         tmp_dir: String,
-    ) -> Result<(), crate::error::FilenSDKError> {
-        // Download the file
-        self.download_partial_file_low_memory(uuid, output_file, tmp_dir, None, None).await?;
-
-        Ok(())
+    ) -> Result<FilenFileDownloadResult, crate::error::FilenSDKError> {
+        self.download_partial_file_low_memory(uuid, output_file, tmp_dir, None, None)
+            .await
     }
 }

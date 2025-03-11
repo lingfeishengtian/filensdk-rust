@@ -29,6 +29,8 @@ pub struct FilenHttpService {
     tmp_dir: String,
 }
 
+// TODO: Organize this
+
 /*
 Public methods
 */
@@ -49,10 +51,6 @@ impl FilenHttpService {
 
     // Blocking function to start the server
     pub fn start_server(&self) {
-        // let info = self.filen_sdk.file_info("789900f1-2811-4fb7-abf7-24558c025047".to_owned()).unwrap();
-        // let decrypted = self.filen_sdk.decrypt_metadata(info.metadata, self.filen_sdk.master_key().unwrap());
-        // println!("{:?}", String::from_utf8(decrypted.unwrap().key).unwrap());
-
         // Begin Tokio runtime multi-threaded server
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -67,18 +65,6 @@ impl FilenHttpService {
                 let io = TokioIo::new(socket);
                 let config = self.configuration.clone();
                 tokio::spawn(async move {
-                    // if let Err(err) = http2::Builder::new(TokioExecutor::new())
-                    //     .serve_connection(io, service_fn(move |req| {
-                    //         let filen_sdk = filen_sdk.clone();
-                    //         let cloned_tmp_dir = cloned_tmp_dir.clone();
-                    //         async move {
-                    //             hello(req, filen_sdk, &cloned_tmp_dir).await
-                    //         }
-                    //     }))
-                    //     .await
-                    // {
-                    //     eprintln!("Error serving connection: {}", err);
-                    // }
                     if let Err(err) = http1::Builder::new().serve_connection(io, service_fn(move |req| {
                         let filen_sdk = filen_sdk.clone();
                         let cloned_tmp_dir = cloned_tmp_dir.clone();
@@ -143,9 +129,8 @@ async fn hello(
 
     println!("Downloading file with UUID: {}", uuid);
 
-    let ooo = uuid::Uuid::new_v4().to_string();
-
-    let size: u64 = 1594202329;
+    let file_info = filen_sdk.file_info(uuid.clone()).await.unwrap();
+    let size = file_info.size;
 
     // Check for range header
     let range = match req.headers().get("Range") {
@@ -176,16 +161,13 @@ async fn hello(
 
     let tmpdir_clone = tmpdir.to_owned();
 
-    let file_info = filen_sdk.file_info(uuid.clone()).await.unwrap();
-    let decrypted = filen_sdk.decrypt_get_response(file_info).unwrap();
-
     let stream = filen_sdk.read_ahead_download_stream(
         size,
         start_byte.unwrap_or(0),
-        decrypted.region,
-        decrypted.bucket,
+        file_info.region,
+        file_info.bucket,
         uuid,
-        String::from_utf8(decrypted.key).unwrap(),
+        String::from_utf8(file_info.key).unwrap(),
     );
 
     let body_stream = StreamBody::new(convert_byte_stream_to_hyper_stream(stream));
